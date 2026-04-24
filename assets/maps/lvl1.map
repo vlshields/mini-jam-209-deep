@@ -1,0 +1,65 @@
+MAP_START
+..................................................................................................
+..................................................................................................
+..................................................................................................
+..................................................................................................
+..................................................................................................
+..................................................................................................
+..................................................................................................
+..................................................................................................
+..................................................................................................
+..................................................................................................
+..................................................................................................
+..................................................................................................
+..................................................................................................
+..................................................................................................
+.........................ee.e...............................eee...................................
+.......................pppppppp.........................pppppppppppp..............................
+..................................................................................................
+.eeeeeeeeeee..s.........eeeeeeeeeee.........eeeeeeeeeee..................e........................
+pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp
+pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp
+pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp
+pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp
+pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp
+MAP_END
+
+
+metadata {
+
+    .: {
+        tiles: nil,
+        passable:nil,
+        collectable:nil,
+        other: is_background=true,color=#3d1f4c
+    }
+
+    p: {
+        tiles:[
+
+            assets/tiles/sandtile1.png,
+            assets/tiles/sandtile2.png,
+            assets/tiles/sandtile3.png,
+        ],
+        passable:false,
+        collectable:false,
+        other: nil
+
+    }
+
+          s: {
+  tiles:nil
+    passable:nil,
+  collectable:nil,
+  other: spawn_point=player
+  }
+
+          e: {
+  tiles:nil
+    passable:nil,
+  collectable:nil,
+  other: spawn_point=enemy_sludge_grunt,possible=true,mandatory=false
+  }
+
+
+}
