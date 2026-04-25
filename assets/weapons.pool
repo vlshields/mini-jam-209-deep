@@ -1,0 +1,37 @@
+{
+  "WeaponPool": [
+    {
+      "id": "double_strike",
+      "kind": "passive",
+      "name": "Double Strike",
+      "description": "2nd combo attack has 13% chance to hit twice (2x damage on proc)",
+      "double_strike_chance": 0.13
+    },
+    {
+      "id": "waveblade",
+      "kind": "replace_x",
+      "name": "Waveblade",
+      "description": "Hovers next to player. Replaces base melee. 30 damage, 4% crit, 10 stamina per swing.",
+      "damage": 30,
+      "crit_chance": 0.04,
+      "stamina_cost": 10,
+      "sprites": {
+        "idle": "assets/sprites/player_waterblade.png",
+        "attack": "assets/sprites/player_waterblade_attack.png"
+      }
+    },
+    {
+      "id": "orb",
+      "kind": "replace_y",
+      "name": "Orb",
+      "description": "Heavy slow projectile. 40 damage, 20% chance to slow enemies on hit.",
+      "damage": 40,
+      "slow_chance": 0.20,
+      "sprites": {
+        "spawn": "assets/sprites/player_waterorb_spawn.png",
+        "idle": "assets/sprites/player_waterorb_idle.png",
+        "attack": "assets/sprites/player_waterorb_attack.png"
+      }
+    }
+  ]
+}

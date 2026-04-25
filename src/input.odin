@@ -59,6 +59,16 @@ input_attack :: proc() -> bool {
 	return false
 }
 
+input_projectile :: proc() -> bool {
+	if raylib.IsKeyPressed(.K) || raylib.IsMouseButtonPressed(.RIGHT) {
+		return true
+	}
+	if gamepad_active() && raylib.IsGamepadButtonPressed(GAMEPAD_ID, .RIGHT_FACE_UP) {
+		return true
+	}
+	return false
+}
+
 input_dash :: proc() -> bool {
 	if raylib.IsKeyPressed(.LEFT_SHIFT) || raylib.IsKeyPressed(.RIGHT_SHIFT) {
 		return true

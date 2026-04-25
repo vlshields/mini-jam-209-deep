@@ -1,0 +1,24 @@
+{
+  "PlayerStatsPossibleUpgrades": {
+    "HP": {
+      "Upgrades": ["+15 max", "+10 max", "+35 max"],
+      "Weighted_Prob": [0.6, 0.3, 0.1]
+    },
+    "Stamina": {
+      "Upgrades": ["+25 max", "+10 max", "+45 max"],
+      "Weighted_Prob": [0.6, 0.3, 0.1]
+    },
+    "Attack_Speed": {
+      "Upgrades": ["+.25", "+.10 max", "+.3 max"],
+      "Weighted_Prob": [0.1, 0.8, 0.1]
+    },
+    "Damage": {
+      "Upgrades": ["+.15 max", "+.08 max", "+.4 max"],
+      "Weighted_Prob": [0.6, 0.3, 0.1]
+    },
+    "Crit_Chance": {
+      "Upgrades": ["+.02 max", "+.01 max", "+.05 max"],
+      "Weighted_Prob": [0.6, 0.3, 0.1]
+    }
+  }
+}

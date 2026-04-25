@@ -2,6 +2,7 @@ package game
 
 import "vendor:raylib"
 import dm "../dotmap"
+import "core:math/rand"
 
 Sludge_State :: enum {
 	Unspawned,
@@ -16,6 +17,7 @@ Sludge_State :: enum {
 
 Sludge :: struct {
 	pos:                    raylib.Vector2, // bottom-center (also the spawn point while Unspawned)
+	spawn_pos:              raylib.Vector2,
 	vel:                    raylib.Vector2,
 	state:                  Sludge_State,
 	on_ground:              bool,
@@ -26,7 +28,10 @@ Sludge :: struct {
 	state_timer:            f32,
 	death_timer:            f32,
 	damage_flash_timer:     f32,
+	stagger_timer:          f32,
+	slow_timer:             f32,
 	last_projectile_hit_id: u32,
+	last_orb_hit_id:        u32,
 }
 
 Sludge_Pool :: struct {
@@ -66,8 +71,15 @@ register_sludge_slot :: proc(pool: ^Sludge_Pool, pos: raylib.Vector2) {
 		return
 	}
 	s := &pool.slots[pool.count]
-	s^ = Sludge{pos = pos, state = .Unspawned}
+	s^ = Sludge{pos = pos, spawn_pos = pos, state = .Unspawned}
 	pool.count += 1
+}
+
+reset_sludges :: proc(pool: ^Sludge_Pool) {
+	for i := 0; i < pool.count; i += 1 {
+		spawn := pool.slots[i].spawn_pos
+		pool.slots[i] = Sludge{pos = spawn, spawn_pos = spawn, state = .Unspawned}
+	}
 }
 
 get_sludge_hitbox :: proc(s: ^Sludge) -> raylib.Rectangle {
@@ -125,7 +137,15 @@ update_sludges :: proc(
 		if s.damage_flash_timer > 0 {
 			s.damage_flash_timer -= dt
 		}
+		if s.slow_timer > 0 {
+			s.slow_timer -= dt
+		}
 
+		if s.stagger_timer > 0 && s.state != .Dying && s.state != .Dead {
+			s.stagger_timer -= dt
+			sludge_apply_gravity(s, dt)
+			sludge_move_and_collide(s, map_data, dt)
+		} else {
 		switch s.state {
 		case .Unspawned, .Dead:
 		// handled above
@@ -154,8 +174,21 @@ update_sludges :: proc(
 			}
 
 		case .Charging:
-			s.facing_left = p.pos.x < s.pos.x
-			s.vel.x = s.facing_left ? -SLUDGE_SPEED : SLUDGE_SPEED
+			dx := p.pos.x - s.pos.x
+			FACE_DEADZONE :: f32(2.0)
+			MOVE_DEADZONE :: f32(4.0)
+			if abs(dx) > FACE_DEADZONE {
+				s.facing_left = dx < 0
+			}
+			speed: f32 = SLUDGE_SPEED
+			if s.slow_timer > 0 {
+				speed *= SLUDGE_SLOW_FACTOR
+			}
+			if abs(dx) < MOVE_DEADZONE {
+				s.vel.x = 0
+			} else {
+				s.vel.x = s.facing_left ? -speed : speed
+			}
 			sludge_apply_gravity(s, dt)
 			sludge_move_and_collide(s, map_data, dt)
 			sludge_animate_loop(s, pool.moving_frames, dt)
@@ -204,13 +237,14 @@ update_sludges :: proc(
 				s.state = .Dead
 			}
 		}
+		}
 
 		// Boomerang collision — at most one hit per throw
 		if s.state != .Dying && s.state != .Dead &&
 		   p.projectile.state != .Inactive &&
 		   s.last_projectile_hit_id != p.projectile.attack_id {
 			if raylib.CheckCollisionRecs(get_projectile_rect(&p.projectile), get_sludge_hitbox(s)) {
-				s.hp -= PROJECTILE_DAMAGE
+				s.hp -= compute_player_damage(p, PROJECTILE_DAMAGE)
 				s.damage_flash_timer = DAMAGE_FLASH_DURATION
 				s.last_projectile_hit_id = p.projectile.attack_id
 				if s.hp <= 0 {
@@ -227,8 +261,74 @@ update_sludges :: proc(
 		if s.state != .Dying && s.state != .Dead &&
 		   p.dash_impact_active && !p.dash_impact_damage_dealt {
 			if raylib.CheckCollisionRecs(get_dash_impact_rect(p), get_sludge_hitbox(s)) {
-				s.hp -= DASH_IMPACT_DAMAGE
+				s.hp -= compute_player_damage(p, DASH_IMPACT_DAMAGE)
 				s.damage_flash_timer = DAMAGE_FLASH_DURATION
+				if s.hp <= 0 {
+					s.state = .Dying
+					s.death_timer = SLUDGE_DEATH_DURATION
+					s.vel.x = 0
+					s.current_frame = 0
+					s.anim_timer = 0
+				}
+			}
+		}
+
+		// Quick attack (melee combo) — damage fires on hit-frame crossing
+		if s.state != .Dying && s.state != .Dead && p.quick_attack_damage_active {
+			if raylib.CheckCollisionRecs(get_quick_attack_rect(p), get_sludge_hitbox(s)) {
+				base: f32 = p.quick_attack_state == .Attack1 ? QUICK_ATTACK_DAMAGE_1 : QUICK_ATTACK_DAMAGE_2
+				dmg := compute_player_damage(p, base)
+				if p.has_double_strike && p.quick_attack_state == .Attack2 &&
+				   rand.float32() < DOUBLE_STRIKE_CHANCE {
+					dmg *= 2
+				}
+				s.hp -= dmg
+				s.damage_flash_timer = DAMAGE_FLASH_DURATION
+				if s.hp <= 0 {
+					s.state = .Dying
+					s.death_timer = SLUDGE_DEATH_DURATION
+					s.vel.x = 0
+					s.current_frame = 0
+					s.anim_timer = 0
+				} else {
+					s.stagger_timer = SLUDGE_STAGGER_DURATION
+					kb_dir: f32 = p.facing_left ? -1.0 : 1.0
+					s.vel.x = kb_dir * SLUDGE_STAGGER_KNOCKBACK
+				}
+			}
+		}
+
+		// Waveblade swing — damage fires on hit-frame crossing
+		if s.state != .Dying && s.state != .Dead && p.waveblade_damage_active {
+			if raylib.CheckCollisionRecs(get_waveblade_rect(p), get_sludge_hitbox(s)) {
+				dmg := compute_player_damage(p, WATERBLADE_DAMAGE, WATERBLADE_CRIT_CHANCE)
+				s.hp -= dmg
+				s.damage_flash_timer = DAMAGE_FLASH_DURATION
+				if s.hp <= 0 {
+					s.state = .Dying
+					s.death_timer = SLUDGE_DEATH_DURATION
+					s.vel.x = 0
+					s.current_frame = 0
+					s.anim_timer = 0
+				} else {
+					s.stagger_timer = SLUDGE_STAGGER_DURATION
+					kb_dir: f32 = p.facing_left ? -1.0 : 1.0
+					s.vel.x = kb_dir * SLUDGE_STAGGER_KNOCKBACK
+				}
+			}
+		}
+
+		// Orb projectile — at most one hit per throw
+		if s.state != .Dying && s.state != .Dead &&
+		   p.orb_state == .Flying &&
+		   s.last_orb_hit_id != p.orb_attack_id {
+			if raylib.CheckCollisionRecs(get_orb_rect(p), get_sludge_hitbox(s)) {
+				s.hp -= compute_player_damage(p, WATERORB_DAMAGE)
+				s.damage_flash_timer = DAMAGE_FLASH_DURATION
+				s.last_orb_hit_id = p.orb_attack_id
+				if rand.float32() < WATERORB_SLOW_CHANCE {
+					s.slow_timer = SLUDGE_SLOW_DURATION
+				}
 				if s.hp <= 0 {
 					s.state = .Dying
 					s.death_timer = SLUDGE_DEATH_DURATION

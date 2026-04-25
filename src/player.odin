@@ -18,6 +18,33 @@ Projectile_State :: enum {
 	Returning,
 }
 
+Quick_Attack_State :: enum {
+	None,
+	Attack1,
+	Attack2,
+}
+
+X_Weapon :: enum {
+	Base_Combo,
+	Waveblade,
+}
+
+Y_Weapon :: enum {
+	Boomerang,
+	Orb,
+}
+
+Waveblade_State :: enum {
+	Idle,
+	Attacking,
+}
+
+Orb_State :: enum {
+	Inactive,
+	Spawning,
+	Flying,
+}
+
 Projectile :: struct {
 	state:         Projectile_State,
 	pos:           raylib.Vector2,
@@ -42,6 +69,13 @@ Player :: struct {
 	facing_left:        bool,
 	moving:             bool,
 	hp:                 f32,
+	stamina:            f32,
+	max_hp:             f32,
+	max_stamina:        f32,
+	damage_multiplier:       f32,
+	crit_chance:             f32,
+	attack_speed_multiplier: f32,
+	has_double_strike:       bool,
 	damage_flash_timer: f32,
 	invuln_timer:       f32,
 	idle_tex:      raylib.Texture2D,
@@ -71,6 +105,42 @@ Player :: struct {
 	dash_impact_frame:        f32,
 	dash_impact_anim_timer:   f32,
 	dash_impact_damage_dealt: bool,
+	// Quick attack (melee combo)
+	quick_attack_state:         Quick_Attack_State,
+	quick_attack_frame:         f32,
+	quick_attack_timer:         f32,
+	quick_attack_cooldown:      f32,
+	quick_attack_damage_active: bool,
+	chain_buffered:             bool,
+	attack1_tex:                raylib.Texture2D,
+	attack2_tex:                raylib.Texture2D,
+	quick_attack_frames:        int,
+	// Weapon slots
+	x_weapon: X_Weapon,
+	y_weapon: Y_Weapon,
+	// Waveblade
+	waveblade_idle_tex:      raylib.Texture2D,
+	waveblade_attack_tex:    raylib.Texture2D,
+	waveblade_idle_frames:   int,
+	waveblade_attack_frames: int,
+	waveblade_state:         Waveblade_State,
+	waveblade_frame:         f32,
+	waveblade_anim_timer:    f32,
+	waveblade_damage_active: bool,
+	// Orb (Y replacement)
+	orb_spawn_tex:      raylib.Texture2D,
+	orb_idle_tex:       raylib.Texture2D,
+	orb_attack_tex:     raylib.Texture2D,
+	orb_spawn_frames:   int,
+	orb_idle_frames:    int,
+	orb_attack_frames:  int,
+	orb_state:          Orb_State,
+	orb_pos:            raylib.Vector2,
+	orb_facing_left:    bool,
+	orb_frame:          f32,
+	orb_anim_timer:     f32,
+	orb_flight_timer:   f32,
+	orb_attack_id:      u32,
 }
 
 init_player :: proc(p: ^Player, spawn: raylib.Vector2) {
@@ -80,7 +150,14 @@ init_player :: proc(p: ^Player, spawn: raylib.Vector2) {
 	p.jumps_left = MAX_JUMPS
 	p.facing_left = false
 	p.moving = false
-	p.hp = PLAYER_MAX_HP
+	p.max_hp = PLAYER_MAX_HP
+	p.max_stamina = PLAYER_MAX_STAMINA
+	p.hp = p.max_hp
+	p.stamina = p.max_stamina
+	p.damage_multiplier = 0
+	p.crit_chance = 0
+	p.attack_speed_multiplier = 0
+	p.has_double_strike = false
 	p.damage_flash_timer = 0
 	p.invuln_timer = 0
 	p.current_frame = 0
@@ -98,6 +175,13 @@ init_player :: proc(p: ^Player, spawn: raylib.Vector2) {
 	p.fall_tex = raylib.LoadTexture("assets/sprites/player_falling.png")
 	p.dash_tex = raylib.LoadTexture("assets/sprites/player_dash.png")
 	p.dash_impact_tex = raylib.LoadTexture("assets/sprites/player_downward_dash_slam.png")
+	p.attack1_tex = raylib.LoadTexture("assets/sprites/player_base_melee_attack1.png")
+	p.attack2_tex = raylib.LoadTexture("assets/sprites/player_base_melee_attack2.png")
+	p.waveblade_idle_tex = raylib.LoadTexture("assets/sprites/player_waterblade.png")
+	p.waveblade_attack_tex = raylib.LoadTexture("assets/sprites/player_waterblade_attack.png")
+	p.orb_spawn_tex = raylib.LoadTexture("assets/sprites/player_waterorb_spawn.png")
+	p.orb_idle_tex = raylib.LoadTexture("assets/sprites/player_waterorb_idle.png")
+	p.orb_attack_tex = raylib.LoadTexture("assets/sprites/player_waterorb_attack.png")
 
 	p.idle_frames = int(p.idle_tex.width) / SPRITE_SRC_SIZE
 	p.move_frames = int(p.move_tex.width) / SPRITE_SRC_SIZE
@@ -105,6 +189,16 @@ init_player :: proc(p: ^Player, spawn: raylib.Vector2) {
 	p.fall_frames = int(p.fall_tex.width) / SPRITE_SRC_SIZE
 	p.dash_frames = int(p.dash_tex.width) / SPRITE_SRC_SIZE
 	p.dash_impact_frames = int(p.dash_impact_tex.width) / DASH_IMPACT_SIZE
+	p.quick_attack_frames = int(p.attack1_tex.width) / QUICK_ATTACK_SRC_SIZE
+	p.waveblade_idle_frames = int(p.waveblade_idle_tex.width) / WATERBLADE_SRC_SIZE
+	p.waveblade_attack_frames = int(p.waveblade_attack_tex.width) / WATERBLADE_SRC_SIZE
+	p.orb_spawn_frames = int(p.orb_spawn_tex.width) / WATERORB_SRC_SIZE
+	p.orb_idle_frames = int(p.orb_idle_tex.width) / WATERORB_SRC_SIZE
+	p.orb_attack_frames = int(p.orb_attack_tex.width) / WATERORB_SRC_SIZE
+	p.x_weapon = .Base_Combo
+	p.y_weapon = .Boomerang
+	p.waveblade_state = .Idle
+	p.orb_state = .Inactive
 
 	p.projectile.out_tex = raylib.LoadTexture("assets/sprites/player_basic_projectile.png")
 	p.projectile.return_tex = raylib.LoadTexture("assets/sprites/player_basic_projectile_returns.png")
@@ -119,6 +213,13 @@ unload_player :: proc(p: ^Player) {
 	raylib.UnloadTexture(p.fall_tex)
 	raylib.UnloadTexture(p.dash_tex)
 	raylib.UnloadTexture(p.dash_impact_tex)
+	raylib.UnloadTexture(p.attack1_tex)
+	raylib.UnloadTexture(p.attack2_tex)
+	raylib.UnloadTexture(p.waveblade_idle_tex)
+	raylib.UnloadTexture(p.waveblade_attack_tex)
+	raylib.UnloadTexture(p.orb_spawn_tex)
+	raylib.UnloadTexture(p.orb_idle_tex)
+	raylib.UnloadTexture(p.orb_attack_tex)
 	raylib.UnloadTexture(p.projectile.out_tex)
 	raylib.UnloadTexture(p.projectile.return_tex)
 }
@@ -132,6 +233,11 @@ update_player :: proc(p: ^Player, map_data: ^dm.Dot_Map, dt: f32) {
 	}
 	if p.invuln_timer > 0 {
 		p.invuln_timer -= dt
+	}
+
+	p.stamina += STAMINA_REGEN_RATE * dt
+	if p.stamina > p.max_stamina {
+		p.stamina = p.max_stamina
 	}
 
 	update_dash_particles(p, dt)
@@ -149,11 +255,23 @@ update_player :: proc(p: ^Player, map_data: ^dm.Dot_Map, dt: f32) {
 		}
 	}
 
-	if p.projectile.state == .Inactive && !p.dashing && input_attack() {
+	if p.x_weapon == .Base_Combo {
+		update_quick_attack(p, dt)
+	} else {
+		p.quick_attack_state = .None
+		p.quick_attack_damage_active = false
+	}
+
+	update_waveblade(p, dt)
+	update_orb(p, dt)
+
+	if p.y_weapon == .Boomerang &&
+	   p.projectile.state == .Inactive && !p.dashing && input_projectile() {
 		fire_projectile(p)
 	}
 
-	if !p.dashing && p.dash_cooldown <= 0 && input_dash() {
+	if !p.dashing && p.dash_cooldown <= 0 && p.stamina >= DASH_STAMINA_COST && input_dash() {
+		p.stamina -= DASH_STAMINA_COST
 		p.dashing = true
 		p.down_dashing = !p.on_ground && input_move_down()
 		p.dash_timer = DASH_DURATION
@@ -334,6 +452,27 @@ draw_player :: proc(p: ^Player) {
 		}
 	}
 	raylib.DrawTexturePro(tex, src, dst, {0, 0}, 0, tint)
+
+	if p.quick_attack_state == .Attack1 || p.quick_attack_state == .Attack2 {
+		qa_tex := p.quick_attack_state == .Attack1 ? p.attack1_tex : p.attack2_tex
+		qa_frame := int(p.quick_attack_frame)
+		if qa_frame >= p.quick_attack_frames {
+			qa_frame = p.quick_attack_frames - 1
+		}
+		qa_src := raylib.Rectangle{
+			f32(qa_frame * QUICK_ATTACK_SRC_SIZE), 0,
+			p.facing_left ? -f32(QUICK_ATTACK_SRC_SIZE) : f32(QUICK_ATTACK_SRC_SIZE),
+			f32(QUICK_ATTACK_SRC_SIZE),
+		}
+		offset_x: f32 = p.facing_left ? -16 : 16
+		qa_dst := raylib.Rectangle{
+			p.pos.x - f32(QUICK_ATTACK_SRC_SIZE) / 2 + offset_x,
+			p.pos.y - f32(QUICK_ATTACK_SRC_SIZE),
+			f32(QUICK_ATTACK_SRC_SIZE),
+			f32(QUICK_ATTACK_SRC_SIZE),
+		}
+		raylib.DrawTexturePro(qa_tex, qa_src, qa_dst, {0, 0}, 0, raylib.WHITE)
+	}
 }
 
 get_player_hitbox :: proc(p: ^Player) -> raylib.Rectangle {
@@ -461,6 +600,292 @@ get_projectile_rect :: proc(pr: ^Projectile) -> raylib.Rectangle {
 		f32(PROJECTILE_SRC_SIZE),
 		f32(PROJECTILE_SRC_SIZE),
 	}
+}
+
+update_quick_attack :: proc(p: ^Player, dt: f32) {
+	if p.quick_attack_cooldown > 0 {
+		p.quick_attack_cooldown -= dt
+	}
+
+	p.quick_attack_damage_active = false
+
+	attack_pressed := input_attack()
+
+	switch p.quick_attack_state {
+	case .None:
+		if !p.dashing && p.quick_attack_cooldown <= 0 && attack_pressed {
+			p.quick_attack_state = .Attack1
+			p.quick_attack_frame = 0
+			p.quick_attack_timer = 0
+			p.chain_buffered = false
+		}
+
+	case .Attack1:
+		prev := int(p.quick_attack_frame)
+		qa_advance_oneshot(p, dt)
+		cur := int(p.quick_attack_frame)
+
+		if prev < QUICK_ATTACK_HIT_FRAME && cur >= QUICK_ATTACK_HIT_FRAME {
+			p.quick_attack_damage_active = true
+		}
+
+		if cur >= p.quick_attack_frames - QUICK_ATTACK_CHAIN_WINDOW && attack_pressed {
+			p.chain_buffered = true
+		}
+
+		if cur >= p.quick_attack_frames {
+			if p.chain_buffered {
+				p.quick_attack_state = .Attack2
+				p.quick_attack_frame = 0
+				p.quick_attack_timer = 0
+			} else {
+				p.quick_attack_state = .None
+				p.quick_attack_cooldown = QUICK_ATTACK_COOLDOWN
+			}
+		}
+
+	case .Attack2:
+		prev := int(p.quick_attack_frame)
+		qa_advance_oneshot(p, dt)
+		cur := int(p.quick_attack_frame)
+
+		if prev < QUICK_ATTACK_HIT_FRAME && cur >= QUICK_ATTACK_HIT_FRAME {
+			p.quick_attack_damage_active = true
+		}
+
+		if cur >= p.quick_attack_frames {
+			p.quick_attack_state = .None
+			p.quick_attack_cooldown = QUICK_ATTACK_COOLDOWN
+		}
+	}
+}
+
+get_quick_attack_rect :: proc(p: ^Player) -> raylib.Rectangle {
+	offset_x: f32 = p.facing_left ? -16 : 16
+	return {
+		p.pos.x - f32(QUICK_ATTACK_SRC_SIZE) / 2 + offset_x,
+		p.pos.y - f32(QUICK_ATTACK_SRC_SIZE),
+		f32(QUICK_ATTACK_SRC_SIZE),
+		f32(QUICK_ATTACK_SRC_SIZE),
+	}
+}
+
+@(private = "file")
+qa_advance_oneshot :: proc(p: ^Player, dt: f32) {
+	fps := QUICK_ATTACK_FPS * (1 + p.attack_speed_multiplier)
+	total_dur: f32 = f32(p.quick_attack_frames) / fps
+	p.quick_attack_timer += dt
+	if p.quick_attack_timer >= total_dur {
+		p.quick_attack_timer = total_dur
+		p.quick_attack_frame = f32(p.quick_attack_frames)
+	} else {
+		p.quick_attack_frame = p.quick_attack_timer * fps
+	}
+}
+
+update_waveblade :: proc(p: ^Player, dt: f32) {
+	if p.x_weapon != .Waveblade {
+		p.waveblade_state = .Idle
+		p.waveblade_damage_active = false
+		return
+	}
+
+	p.waveblade_damage_active = false
+
+	switch p.waveblade_state {
+	case .Idle:
+		frame_dur: f32 = 1.0 / WATERBLADE_IDLE_FPS
+		p.waveblade_anim_timer += dt
+		if p.waveblade_anim_timer >= frame_dur {
+			p.waveblade_anim_timer -= frame_dur
+			p.waveblade_frame += 1
+			if int(p.waveblade_frame) >= p.waveblade_idle_frames {
+				p.waveblade_frame = 0
+			}
+		}
+		if !p.dashing && p.stamina >= WATERBLADE_STAMINA_COST && input_attack() {
+			p.stamina -= WATERBLADE_STAMINA_COST
+			p.waveblade_state = .Attacking
+			p.waveblade_frame = 0
+			p.waveblade_anim_timer = 0
+		}
+
+	case .Attacking:
+		prev := int(p.waveblade_frame)
+		fps := WATERBLADE_ATTACK_FPS * (1 + p.attack_speed_multiplier)
+		frame_dur: f32 = 1.0 / fps
+		p.waveblade_anim_timer += dt
+		if p.waveblade_anim_timer >= frame_dur {
+			p.waveblade_anim_timer -= frame_dur
+			p.waveblade_frame += 1
+		}
+		cur := int(p.waveblade_frame)
+
+		if prev < WATERBLADE_HIT_FRAME && cur >= WATERBLADE_HIT_FRAME {
+			p.waveblade_damage_active = true
+		}
+
+		if cur >= p.waveblade_attack_frames {
+			p.waveblade_state = .Idle
+			p.waveblade_frame = 0
+			p.waveblade_anim_timer = 0
+		}
+	}
+}
+
+get_waveblade_rect :: proc(p: ^Player) -> raylib.Rectangle {
+	offset_x: f32 = p.facing_left ? -WATERBLADE_OFFSET_X : WATERBLADE_OFFSET_X
+	y_top := p.pos.y - f32(SPRITE_DST_SIZE) / 2 - f32(WATERBLADE_SRC_SIZE) / 2 - WATERBLADE_OFFSET_Y
+	return {
+		p.pos.x - f32(WATERBLADE_SRC_SIZE) / 2 + offset_x,
+		y_top,
+		f32(WATERBLADE_SRC_SIZE),
+		f32(WATERBLADE_SRC_SIZE),
+	}
+}
+
+draw_waveblade :: proc(p: ^Player) {
+	if p.x_weapon != .Waveblade {
+		return
+	}
+
+	tex:    raylib.Texture2D
+	frames: int
+	if p.waveblade_state == .Attacking {
+		tex = p.waveblade_attack_tex
+		frames = p.waveblade_attack_frames
+	} else {
+		tex = p.waveblade_idle_tex
+		frames = p.waveblade_idle_frames
+	}
+
+	frame := int(p.waveblade_frame)
+	if frame >= frames {
+		frame = frames - 1
+	}
+	src := raylib.Rectangle{
+		f32(frame * WATERBLADE_SRC_SIZE), 0,
+		p.facing_left ? -f32(WATERBLADE_SRC_SIZE) : f32(WATERBLADE_SRC_SIZE),
+		f32(WATERBLADE_SRC_SIZE),
+	}
+	offset_x: f32 = p.facing_left ? -WATERBLADE_OFFSET_X : WATERBLADE_OFFSET_X
+	y_top := p.pos.y - f32(SPRITE_DST_SIZE) / 2 - f32(WATERBLADE_SRC_SIZE) / 2 - WATERBLADE_OFFSET_Y
+	dst := raylib.Rectangle{
+		p.pos.x - f32(WATERBLADE_SRC_SIZE) / 2 + offset_x,
+		y_top,
+		f32(WATERBLADE_SRC_SIZE),
+		f32(WATERBLADE_SRC_SIZE),
+	}
+	raylib.DrawTexturePro(tex, src, dst, {0, 0}, 0, raylib.WHITE)
+}
+
+update_orb :: proc(p: ^Player, dt: f32) {
+	if p.y_weapon != .Orb {
+		p.orb_state = .Inactive
+		return
+	}
+
+	switch p.orb_state {
+	case .Inactive:
+		if !p.dashing && input_projectile() {
+			p.orb_state = .Spawning
+			p.orb_facing_left = p.facing_left
+			p.orb_pos = {p.pos.x, p.pos.y - f32(PLAYER_HITBOX_H) / 2}
+			p.orb_frame = 0
+			p.orb_anim_timer = 0
+			p.orb_attack_id += 1
+		}
+
+	case .Spawning:
+		p.orb_pos = {p.pos.x, p.pos.y - f32(PLAYER_HITBOX_H) / 2}
+		frame_dur: f32 = 1.0 / WATERORB_SPAWN_FPS
+		p.orb_anim_timer += dt
+		if p.orb_anim_timer >= frame_dur {
+			p.orb_anim_timer -= frame_dur
+			p.orb_frame += 1
+		}
+		if int(p.orb_frame) >= p.orb_spawn_frames {
+			p.orb_state = .Flying
+			p.orb_frame = 0
+			p.orb_anim_timer = 0
+			p.orb_flight_timer = WATERORB_FLIGHT_DURATION
+		}
+
+	case .Flying:
+		dir: f32 = p.orb_facing_left ? -1.0 : 1.0
+		p.orb_pos.x += dir * WATERORB_SPEED * dt
+		p.orb_flight_timer -= dt
+
+		frame_dur: f32 = 1.0 / WATERORB_ATTACK_FPS
+		p.orb_anim_timer += dt
+		if p.orb_anim_timer >= frame_dur {
+			p.orb_anim_timer -= frame_dur
+			p.orb_frame += 1
+			if int(p.orb_frame) >= p.orb_attack_frames {
+				p.orb_frame = 0
+			}
+		}
+
+		if p.orb_flight_timer <= 0 {
+			p.orb_state = .Inactive
+		}
+	}
+}
+
+get_orb_rect :: proc(p: ^Player) -> raylib.Rectangle {
+	return {
+		p.orb_pos.x - f32(WATERORB_SRC_SIZE) / 2,
+		p.orb_pos.y - f32(WATERORB_SRC_SIZE) / 2,
+		f32(WATERORB_SRC_SIZE),
+		f32(WATERORB_SRC_SIZE),
+	}
+}
+
+draw_orb :: proc(p: ^Player) {
+	if p.y_weapon != .Orb || p.orb_state == .Inactive {
+		return
+	}
+
+	tex:    raylib.Texture2D
+	frames: int
+	switch p.orb_state {
+	case .Spawning:
+		tex = p.orb_spawn_tex
+		frames = p.orb_spawn_frames
+	case .Flying:
+		tex = p.orb_attack_tex
+		frames = p.orb_attack_frames
+	case .Inactive:
+		return
+	}
+
+	frame := int(p.orb_frame)
+	if frame >= frames {
+		frame = frames - 1
+	}
+	src := raylib.Rectangle{
+		f32(frame * WATERORB_SRC_SIZE), 0,
+		p.orb_facing_left ? -f32(WATERORB_SRC_SIZE) : f32(WATERORB_SRC_SIZE),
+		f32(WATERORB_SRC_SIZE),
+	}
+	dst := raylib.Rectangle{
+		p.orb_pos.x - f32(WATERORB_SRC_SIZE) / 2,
+		p.orb_pos.y - f32(WATERORB_SRC_SIZE) / 2,
+		f32(WATERORB_SRC_SIZE),
+		f32(WATERORB_SRC_SIZE),
+	}
+	raylib.DrawTexturePro(tex, src, dst, {0, 0}, 0, raylib.WHITE)
+}
+
+
+
+compute_player_damage :: proc(p: ^Player, base: f32, base_crit: f32 = 0) -> f32 {
+	dmg := base * (1 + p.damage_multiplier)
+	crit := base_crit + p.crit_chance
+	if crit > 0 && rand.float32() < crit {
+		dmg *= CRIT_DAMAGE_MULTIPLIER
+	}
+	return dmg
 }
 
 apply_damage_to_player :: proc(p: ^Player, amount: f32) {
