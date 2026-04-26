@@ -278,6 +278,7 @@ update_player :: proc(p: ^Player, map_data: ^dm.Dot_Map, dt: f32) {
 		p.dash_dir = p.facing_left ? -1.0 : 1.0
 		p.current_frame = 0
 		p.anim_timer = 0
+		play_sound(.Player_Dash)
 	}
 
 	if p.dashing {
@@ -348,6 +349,7 @@ update_player :: proc(p: ^Player, map_data: ^dm.Dot_Map, dt: f32) {
 			p.vel.y = JUMP_VELOCITY
 			p.on_ground = false
 			p.jumps_left -= 1
+			play_sound(.Player_Jump)
 		}
 
 		p.vel.y += GRAVITY * dt
@@ -401,6 +403,8 @@ update_player :: proc(p: ^Player, map_data: ^dm.Dot_Map, dt: f32) {
 			}
 		}
 	}
+
+	update_footsteps(!p.dashing && p.on_ground && p.moving, dt)
 }
 
 draw_player :: proc(p: ^Player) {
@@ -591,6 +595,7 @@ fire_projectile :: proc(p: ^Player) {
 	pr.current_frame = 0
 	pr.anim_timer = 0
 	pr.attack_id += 1
+	play_sound(.Player_Base_Special_Attack)
 }
 
 get_projectile_rect :: proc(pr: ^Projectile) -> raylib.Rectangle {
@@ -618,6 +623,7 @@ update_quick_attack :: proc(p: ^Player, dt: f32) {
 			p.quick_attack_frame = 0
 			p.quick_attack_timer = 0
 			p.chain_buffered = false
+			play_sound(.Player_Base_Melee_Attacks)
 		}
 
 	case .Attack1:
@@ -638,6 +644,7 @@ update_quick_attack :: proc(p: ^Player, dt: f32) {
 				p.quick_attack_state = .Attack2
 				p.quick_attack_frame = 0
 				p.quick_attack_timer = 0
+				play_sound(.Player_Base_Melee_Attacks)
 			} else {
 				p.quick_attack_state = .None
 				p.quick_attack_cooldown = QUICK_ATTACK_COOLDOWN
@@ -708,6 +715,7 @@ update_waveblade :: proc(p: ^Player, dt: f32) {
 			p.waveblade_state = .Attacking
 			p.waveblade_frame = 0
 			p.waveblade_anim_timer = 0
+			play_sound(.Waterblade_Attack)
 		}
 
 	case .Attacking:
@@ -794,6 +802,7 @@ update_orb :: proc(p: ^Player, dt: f32) {
 			p.orb_frame = 0
 			p.orb_anim_timer = 0
 			p.orb_attack_id += 1
+			play_sound(.Water_Orb_Spawns)
 		}
 
 	case .Spawning:
@@ -809,6 +818,7 @@ update_orb :: proc(p: ^Player, dt: f32) {
 			p.orb_frame = 0
 			p.orb_anim_timer = 0
 			p.orb_flight_timer = WATERORB_FLIGHT_DURATION
+			play_sound(.Water_Orb_Attack)
 		}
 
 	case .Flying:

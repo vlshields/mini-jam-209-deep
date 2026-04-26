@@ -182,6 +182,9 @@ update_soldiers :: proc(
 			continue
 		}
 
+		prev_hp := s.hp
+		prev_state := s.state
+
 		if s.damage_flash_timer > 0 {
 			s.damage_flash_timer -= dt
 		}
@@ -389,6 +392,12 @@ update_soldiers :: proc(
 				}
 			}
 		}
+
+		if s.state == .Dying && prev_state != .Dying {
+			play_sound(.Enemy_Dies)
+		} else if s.hp < prev_hp {
+			play_sound(.Hit)
+		}
 	}
 }
 
@@ -472,6 +481,7 @@ fire_soldier_projectile :: proc(s: ^Sludge_Soldier) {
 	pr.travelled = 0
 	pr.current_frame = 0
 	pr.anim_timer = 0
+	play_sound(.Enemy_Soldier_Attacks)
 }
 
 @(private = "file")

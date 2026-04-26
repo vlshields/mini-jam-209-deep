@@ -29,6 +29,8 @@ Game_State :: struct {
 	should_quit:        bool,
 	bg_color:           raylib.Color,
 	bg_texture:         raylib.Texture2D,
+	combat_music:       raylib.Music,
+	combat_music_loaded: bool,
 	screen_shake:       f32,
 	menu:               Menu_State,
 	menu_selected:      int,
@@ -215,6 +217,16 @@ init :: proc() {
 	gs.bg_color = {0x3d, 0x1f, 0x4c, 0xff}
 	gs.bg_texture = raylib.LoadTexture("assets/tiles/Background.png")
 
+	raylib.InitAudioDevice()
+	if raylib.IsAudioDeviceReady() {
+		gs.combat_music = raylib.LoadMusicStream("assets/audio/soundtrack/waves.ogg")
+		gs.combat_music.looping = true
+		raylib.SetMusicVolume(gs.combat_music, 0.2)
+		raylib.PlayMusicStream(gs.combat_music)
+		gs.combat_music_loaded = true
+		init_audio()
+	}
+
 	if !load_map_data(LEVEL_MAP_PATH) {
 		gs.should_quit = true
 		return
@@ -258,15 +270,30 @@ update :: proc() {
 	}
 
 	if input_pause() {
+		play_sound(.UI_Negative_Back)
 		gs.should_quit = true
+	}
+
+	if gs.combat_music_loaded {
+		if gs.menu == .Playing {
+			raylib.ResumeMusicStream(gs.combat_music)
+		} else {
+			raylib.PauseMusicStream(gs.combat_music)
+		}
+		raylib.UpdateMusicStream(gs.combat_music)
 	}
 
 	switch gs.menu {
 	case .Playing:
 		prev_dash_impact := gs.player.dash_impact_active
+		prev_hp := gs.player.hp
 		update_player(&gs.player, &gs.map_data, dt)
 		if !prev_dash_impact && gs.player.dash_impact_active {
 			gs.screen_shake = SCREENSHAKE_DURATION
+			play_sound(.Player_Dash_Ground_Impact)
+		}
+		if gs.player.hp < prev_hp {
+			play_sound(.Hit)
 		}
 
 		update_sludges(&gs.sludges, &gs.player, &gs.camera, &gs.map_data, dt)
@@ -349,6 +376,11 @@ shutdown :: proc() {
 	unload_map_data()
 	raylib.UnloadTexture(gs.bg_texture)
 	raylib.UnloadRenderTexture(gs.render_target)
+	if gs.combat_music_loaded {
+		raylib.UnloadMusicStream(gs.combat_music)
+	}
+	unload_audio()
+	raylib.CloseAudioDevice()
 	raylib.CloseWindow()
 }
 
@@ -521,6 +553,7 @@ handle_menu_input :: proc(count: int, on_confirm: proc(int)) {
 		return
 	}
 	if c := input_choice_pressed(); c >= 1 && c <= count {
+		play_sound(.UI_Confirm)
 		on_confirm(c - 1)
 		return
 	}
@@ -540,6 +573,7 @@ handle_menu_input :: proc(count: int, on_confirm: proc(int)) {
 		gs.menu_selected = count - 1
 	}
 	if input_menu_confirm() {
+		play_sound(.UI_Confirm)
 		on_confirm(gs.menu_selected)
 	}
 }

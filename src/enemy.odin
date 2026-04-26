@@ -134,6 +134,9 @@ update_sludges :: proc(
 			continue
 		}
 
+		prev_hp := s.hp
+		prev_state := s.state
+
 		if s.damage_flash_timer > 0 {
 			s.damage_flash_timer -= dt
 		}
@@ -198,6 +201,7 @@ update_sludges :: proc(
 				s.vel.x = 0
 				s.current_frame = 0
 				s.anim_timer = 0
+				play_sound(.Enemy_Devil_Attacks)
 			}
 
 		case .Attacking:
@@ -337,6 +341,12 @@ update_sludges :: proc(
 					s.anim_timer = 0
 				}
 			}
+		}
+
+		if s.state == .Dying && prev_state != .Dying {
+			play_sound(.Enemy_Dies)
+		} else if s.hp < prev_hp {
+			play_sound(.Hit)
 		}
 	}
 }
