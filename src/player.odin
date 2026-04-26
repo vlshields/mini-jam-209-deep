@@ -32,6 +32,7 @@ X_Weapon :: enum {
 Y_Weapon :: enum {
 	Boomerang,
 	Orb,
+	Giant_Whale,
 }
 
 Waveblade_State :: enum {
@@ -43,6 +44,11 @@ Orb_State :: enum {
 	Inactive,
 	Spawning,
 	Flying,
+}
+
+Whale_State :: enum {
+	Idle,
+	Attacking,
 }
 
 Projectile :: struct {
@@ -141,6 +147,15 @@ Player :: struct {
 	orb_anim_timer:     f32,
 	orb_flight_timer:   f32,
 	orb_attack_id:      u32,
+	// Giant Whale (Y replacement)
+	whale_tex:           raylib.Texture2D,
+	whale_frames:        int,
+	whale_state:         Whale_State,
+	whale_frame:         f32,
+	whale_anim_timer:    f32,
+	whale_pos:           raylib.Vector2,
+	whale_damage_active: bool,
+	stats_capped:        bool,
 }
 
 init_player :: proc(p: ^Player, spawn: raylib.Vector2) {
@@ -182,6 +197,7 @@ init_player :: proc(p: ^Player, spawn: raylib.Vector2) {
 	p.orb_spawn_tex = raylib.LoadTexture("assets/sprites/player_waterorb_spawn.png")
 	p.orb_idle_tex = raylib.LoadTexture("assets/sprites/player_waterorb_idle.png")
 	p.orb_attack_tex = raylib.LoadTexture("assets/sprites/player_waterorb_attack.png")
+	p.whale_tex = raylib.LoadTexture("assets/sprites/player_giant_whale_attack.png")
 
 	p.idle_frames = int(p.idle_tex.width) / SPRITE_SRC_SIZE
 	p.move_frames = int(p.move_tex.width) / SPRITE_SRC_SIZE
@@ -195,10 +211,13 @@ init_player :: proc(p: ^Player, spawn: raylib.Vector2) {
 	p.orb_spawn_frames = int(p.orb_spawn_tex.width) / WATERORB_SRC_SIZE
 	p.orb_idle_frames = int(p.orb_idle_tex.width) / WATERORB_SRC_SIZE
 	p.orb_attack_frames = int(p.orb_attack_tex.width) / WATERORB_SRC_SIZE
+	p.whale_frames = int(p.whale_tex.width) / WHALE_SRC_SIZE
 	p.x_weapon = .Base_Combo
 	p.y_weapon = .Boomerang
 	p.waveblade_state = .Idle
 	p.orb_state = .Inactive
+	p.whale_state = .Idle
+	p.stats_capped = false
 
 	p.projectile.out_tex = raylib.LoadTexture("assets/sprites/player_basic_projectile.png")
 	p.projectile.return_tex = raylib.LoadTexture("assets/sprites/player_basic_projectile_returns.png")
@@ -220,6 +239,7 @@ unload_player :: proc(p: ^Player) {
 	raylib.UnloadTexture(p.orb_spawn_tex)
 	raylib.UnloadTexture(p.orb_idle_tex)
 	raylib.UnloadTexture(p.orb_attack_tex)
+	raylib.UnloadTexture(p.whale_tex)
 	raylib.UnloadTexture(p.projectile.out_tex)
 	raylib.UnloadTexture(p.projectile.return_tex)
 }
@@ -264,6 +284,7 @@ update_player :: proc(p: ^Player, map_data: ^dm.Dot_Map, dt: f32) {
 
 	update_waveblade(p, dt)
 	update_orb(p, dt)
+	update_whale(p, dt)
 
 	if p.y_weapon == .Boomerang &&
 	   p.projectile.state == .Inactive && !p.dashing && input_projectile() {
@@ -849,6 +870,76 @@ get_orb_rect :: proc(p: ^Player) -> raylib.Rectangle {
 		f32(WATERORB_SRC_SIZE),
 		f32(WATERORB_SRC_SIZE),
 	}
+}
+
+update_whale :: proc(p: ^Player, dt: f32) {
+	if p.y_weapon != .Giant_Whale {
+		p.whale_state = .Idle
+		p.whale_damage_active = false
+		return
+	}
+
+	p.whale_damage_active = false
+
+	switch p.whale_state {
+	case .Idle:
+		if !p.dashing && p.stamina >= WHALE_STAMINA_COST && input_projectile() {
+			p.stamina -= WHALE_STAMINA_COST
+			p.whale_state = .Attacking
+			p.whale_frame = 0
+			p.whale_anim_timer = 0
+			p.whale_pos = {p.pos.x, p.pos.y - f32(SPRITE_DST_SIZE) / 2}
+			p.whale_damage_active = true
+			play_sound(.Water_Orb_Attack)
+		}
+
+	case .Attacking:
+		fps := WHALE_FPS * (1 + p.attack_speed_multiplier)
+		frame_dur: f32 = 1.0 / fps
+		p.whale_anim_timer += dt
+		if p.whale_anim_timer >= frame_dur {
+			p.whale_anim_timer -= frame_dur
+			p.whale_frame += 1
+		}
+		if int(p.whale_frame) >= p.whale_frames {
+			p.whale_state = .Idle
+			p.whale_frame = 0
+			p.whale_anim_timer = 0
+		} else {
+			p.whale_damage_active = true
+		}
+	}
+}
+
+get_whale_rect :: proc(p: ^Player) -> raylib.Rectangle {
+	return {
+		p.whale_pos.x - f32(WHALE_HITBOX_SIZE) / 2,
+		p.whale_pos.y - f32(WHALE_HITBOX_SIZE) / 2,
+		f32(WHALE_HITBOX_SIZE),
+		f32(WHALE_HITBOX_SIZE),
+	}
+}
+
+draw_whale :: proc(p: ^Player) {
+	if p.y_weapon != .Giant_Whale || p.whale_state != .Attacking {
+		return
+	}
+	frame := int(p.whale_frame)
+	if frame >= p.whale_frames {
+		frame = p.whale_frames - 1
+	}
+	src := raylib.Rectangle{
+		f32(frame * WHALE_SRC_SIZE), 0,
+		p.facing_left ? -f32(WHALE_SRC_SIZE) : f32(WHALE_SRC_SIZE),
+		f32(WHALE_SRC_SIZE),
+	}
+	dst := raylib.Rectangle{
+		p.whale_pos.x - f32(WHALE_SRC_SIZE) / 2,
+		p.whale_pos.y - f32(WHALE_SRC_SIZE) / 2,
+		f32(WHALE_SRC_SIZE),
+		f32(WHALE_SRC_SIZE),
+	}
+	raylib.DrawTexturePro(p.whale_tex, src, dst, {0, 0}, 0, raylib.WHITE)
 }
 
 draw_orb :: proc(p: ^Player) {

@@ -24,6 +24,7 @@ Weapon_Kind :: enum {
 	Double_Strike,
 	Waveblade,
 	Orb,
+	Giant_Whale,
 }
 
 WEAPON_COUNT :: len(Weapon_Kind)
@@ -88,6 +89,9 @@ sample_stat_choices :: proc() -> [3]Stat_Upgrade {
 }
 
 apply_stat_upgrade :: proc(p: ^Player, u: Stat_Upgrade) {
+	if p.stats_capped && u.kind != .Stamina {
+		return
+	}
 	switch u.kind {
 	case .HP:
 		p.max_hp += u.amount
@@ -109,6 +113,7 @@ weapon_title :: proc(k: Weapon_Kind) -> string {
 	case .Double_Strike: return "Double Strike"
 	case .Waveblade:     return "Waveblade"
 	case .Orb:           return "Orb"
+	case .Giant_Whale:   return "Giant Whale"
 	}
 	return ""
 }
@@ -118,12 +123,13 @@ weapon_desc :: proc(k: Weapon_Kind) -> string {
 	case .Double_Strike: return "Combo finisher: 13% chance for 2x damage"
 	case .Waveblade:     return "Replaces melee. 30 dmg, 4% crit, 10 stamina"
 	case .Orb:           return "Replaces projectile. 40 dmg, 20% slow on hit"
+	case .Giant_Whale:   return "Replaces special. 55 stam: AOE kill + block. Caps non-stamina stats"
 	}
 	return ""
 }
 
 sample_weapon_choices :: proc(available: [Weapon_Kind]bool) -> (choices: [3]Weapon_Kind, count: int) {
-	all_weapons := [WEAPON_COUNT]Weapon_Kind{.Double_Strike, .Waveblade, .Orb}
+	all_weapons := [WEAPON_COUNT]Weapon_Kind{.Double_Strike, .Waveblade, .Orb, .Giant_Whale}
 	pool: [WEAPON_COUNT]Weapon_Kind
 	n := 0
 	for k in all_weapons {
@@ -158,6 +164,12 @@ apply_weapon_upgrade :: proc(p: ^Player, k: Weapon_Kind) {
 	case .Orb:
 		p.y_weapon = .Orb
 		p.orb_state = .Inactive
+	case .Giant_Whale:
+		p.y_weapon = .Giant_Whale
+		p.whale_state = .Idle
+		p.whale_frame = 0
+		p.whale_anim_timer = 0
+		p.stats_capped = true
 	}
 }
 
@@ -233,5 +245,23 @@ input_menu_right :: proc() -> bool {
 input_menu_confirm :: proc() -> bool {
 	if raylib.IsKeyPressed(.ENTER) || raylib.IsKeyPressed(.SPACE) { return true }
 	if gamepad_active() && raylib.IsGamepadButtonPressed(GAMEPAD_ID, .RIGHT_FACE_DOWN) { return true }
+	return false
+}
+
+input_menu_up :: proc() -> bool {
+	if raylib.IsKeyPressed(.W) || raylib.IsKeyPressed(.UP) { return true }
+	if gamepad_active() && raylib.IsGamepadButtonPressed(GAMEPAD_ID, .LEFT_FACE_UP) { return true }
+	return false
+}
+
+input_menu_down :: proc() -> bool {
+	if raylib.IsKeyPressed(.S) || raylib.IsKeyPressed(.DOWN) { return true }
+	if gamepad_active() && raylib.IsGamepadButtonPressed(GAMEPAD_ID, .LEFT_FACE_DOWN) { return true }
+	return false
+}
+
+input_menu_back :: proc() -> bool {
+	if raylib.IsKeyPressed(.ESCAPE) { return true }
+	if gamepad_active() && raylib.IsGamepadButtonPressed(GAMEPAD_ID, .RIGHT_FACE_RIGHT) { return true }
 	return false
 }

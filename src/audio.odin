@@ -72,10 +72,27 @@ audio_initialized: bool
 @(private = "file")
 footstep_timer: f32
 
+@(private = "file")
+master_sfx_volume: f32 = 1.0
+
+set_master_sfx_volume :: proc(v: f32) {
+	master_sfx_volume = clamp(v, 0, 1)
+	if !audio_initialized {
+		return
+	}
+	for kind in Sound_Kind {
+		raylib.SetSoundVolume(sounds[kind], SOUND_VOLUMES[kind] * master_sfx_volume)
+	}
+}
+
+get_master_sfx_volume :: proc() -> f32 {
+	return master_sfx_volume
+}
+
 init_audio :: proc() {
 	for kind in Sound_Kind {
 		sounds[kind] = raylib.LoadSound(SOUND_PATHS[kind])
-		raylib.SetSoundVolume(sounds[kind], SOUND_VOLUMES[kind])
+		raylib.SetSoundVolume(sounds[kind], SOUND_VOLUMES[kind] * master_sfx_volume)
 	}
 	audio_initialized = true
 	footstep_timer = 0

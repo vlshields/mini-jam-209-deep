@@ -60,6 +60,11 @@ WATERORB_SLOW_CHANCE     :: 0.20
 WATERORB_SPEED           :: 90.0
 WATERORB_FLIGHT_DURATION :: 1.6
 
+WHALE_SRC_SIZE     :: 32
+WHALE_HITBOX_SIZE  :: 32
+WHALE_FPS          :: 18.0
+WHALE_STAMINA_COST :: 55.0
+
 SLUDGE_SLOW_DURATION :: 2.0
 SLUDGE_SLOW_FACTOR   :: 0.5
 
@@ -121,6 +126,12 @@ MAX_SOLDIER_ALIVE         :: 4
 SOLDIER_WAVE_THRESHOLD    :: 3
 
 LEVEL_MAP_PATH :: "assets/maps/lvl1.map"
+
+PARALLAX_LAYER_COUNT :: 3
+PARALLAX_SPEEDS : [PARALLAX_LAYER_COUNT]f32 : {0.05, 0.20, 0.50}
+
+MUSIC_BASE_VOLUME :: 0.2
+VOLUME_STEP       :: 0.10
 
 // Animation Speeds
 IDLE_OFFSET :: 0.04 // Idle animations look more natural when slower than others

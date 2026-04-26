@@ -376,6 +376,14 @@ update_soldiers :: proc(
 			}
 		}
 
+		// Giant whale — instakill any foe in its hitbox
+		if s.state != .Dying && s.state != .Dead && p.whale_damage_active {
+			if raylib.CheckCollisionRecs(get_whale_rect(p), get_soldier_hitbox(s)) {
+				s.hp = 0
+				soldier_enter_dying(s)
+			}
+		}
+
 		// Orb projectile
 		if s.state != .Dying && s.state != .Dead &&
 		   p.orb_state == .Flying &&
@@ -515,6 +523,11 @@ update_soldier_projectile :: proc(
 	}
 
 	if pr.travelled >= SOLDIER_PROJECTILE_MAX_DIST {
+		pr.state = .Inactive
+		return
+	}
+
+	if p.whale_damage_active && raylib.CheckCollisionRecs(rect, get_whale_rect(p)) {
 		pr.state = .Inactive
 		return
 	}

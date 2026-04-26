@@ -32,6 +32,18 @@
         "idle": "assets/sprites/player_waterorb_idle.png",
         "attack": "assets/sprites/player_waterorb_attack.png"
       }
+    },
+    {
+      "id": "giant_whale",
+      "kind": "replace_y",
+      "name": "Giant Whale",
+      "description": "Replaces special. Summons a giant whale that instakills foes in a 32x32 hitbox and blocks incoming projectiles. Costs 55 stamina. Caps all non-stamina stats at their current value.",
+      "stamina_cost": 55,
+      "hitbox_size": 32,
+      "caps_non_stamina_stats": true,
+      "sprites": {
+        "attack": "assets/sprites/player_giant_whale_attack.png"
+      }
     }
   ]
 }

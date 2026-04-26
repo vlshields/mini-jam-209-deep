@@ -322,6 +322,18 @@ update_sludges :: proc(
 			}
 		}
 
+		// Giant whale — instakill any foe in its hitbox
+		if s.state != .Dying && s.state != .Dead && p.whale_damage_active {
+			if raylib.CheckCollisionRecs(get_whale_rect(p), get_sludge_hitbox(s)) {
+				s.hp = 0
+				s.state = .Dying
+				s.death_timer = SLUDGE_DEATH_DURATION
+				s.vel.x = 0
+				s.current_frame = 0
+				s.anim_timer = 0
+			}
+		}
+
 		// Orb projectile — at most one hit per throw
 		if s.state != .Dying && s.state != .Dead &&
 		   p.orb_state == .Flying &&

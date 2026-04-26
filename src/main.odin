@@ -3,6 +3,7 @@ package game
 import "vendor:raylib"
 import dm "../dotmap"
 import "core:fmt"
+import "core:math"
 import "core:math/rand"
 import "core:strings"
 
@@ -10,7 +11,16 @@ Menu_State :: enum {
 	Playing,
 	Choosing_Stats,
 	Choosing_Weapon,
+	Paused,
 }
+
+Pause_Screen :: enum {
+	Main,
+	Controls,
+	Options,
+}
+
+PAUSE_MAIN_ITEM_COUNT :: 4
 
 Game_State :: struct {
 	map_data:           dm.Dot_Map,
@@ -28,7 +38,7 @@ Game_State :: struct {
 	window_h:           i32,
 	should_quit:        bool,
 	bg_color:           raylib.Color,
-	bg_texture:         raylib.Texture2D,
+	bg_textures:        [PARALLAX_LAYER_COUNT]raylib.Texture2D,
 	combat_music:       raylib.Music,
 	combat_music_loaded: bool,
 	screen_shake:       f32,
@@ -38,6 +48,9 @@ Game_State :: struct {
 	weapon_choices:     [3]Weapon_Kind,
 	weapon_count:       int,
 	weapons_available:  [Weapon_Kind]bool,
+	pause_screen:       Pause_Screen,
+	music_volume:       f32,
+	sfx_volume:         f32,
 }
 
 @(private = "file")
@@ -215,16 +228,22 @@ init :: proc() {
 	update_screen_scale()
 
 	gs.bg_color = {0x3d, 0x1f, 0x4c, 0xff}
-	gs.bg_texture = raylib.LoadTexture("assets/tiles/Background.png")
+	gs.bg_textures[0] = raylib.LoadTexture("assets/tiles/Background.png")
+	gs.bg_textures[1] = raylib.LoadTexture("assets/tiles/Background1.png")
+	gs.bg_textures[2] = raylib.LoadTexture("assets/tiles/Background2.png")
+
+	gs.music_volume = 1.0
+	gs.sfx_volume = 1.0
 
 	raylib.InitAudioDevice()
 	if raylib.IsAudioDeviceReady() {
 		gs.combat_music = raylib.LoadMusicStream("assets/audio/soundtrack/waves.ogg")
 		gs.combat_music.looping = true
-		raylib.SetMusicVolume(gs.combat_music, 0.2)
+		raylib.SetMusicVolume(gs.combat_music, MUSIC_BASE_VOLUME * gs.music_volume)
 		raylib.PlayMusicStream(gs.combat_music)
 		gs.combat_music_loaded = true
 		init_audio()
+		set_master_sfx_volume(gs.sfx_volume)
 	}
 
 	if !load_map_data(LEVEL_MAP_PATH) {
@@ -269,9 +288,13 @@ update :: proc() {
 		dt = 0.05
 	}
 
-	if input_pause() {
-		play_sound(.UI_Negative_Back)
-		gs.should_quit = true
+	if gs.menu == .Playing && input_pause() {
+		gs.menu = .Paused
+		gs.pause_screen = .Main
+		gs.menu_selected = 0
+		play_sound(.UI_Confirm)
+	} else if gs.menu == .Paused && input_menu_back() {
+		handle_pause_back()
 	}
 
 	if gs.combat_music_loaded {
@@ -323,15 +346,16 @@ update :: proc() {
 			gs.weapons_available[chosen] = false
 			close_menu_and_loop()
 		})
+
+	case .Paused:
+		update_pause_menu()
 	}
 
 	update_camera(dt)
 
 	raylib.BeginTextureMode(gs.render_target)
 	raylib.ClearBackground(gs.bg_color)
-	if gs.bg_texture.id > 0 {
-		raylib.DrawTexture(gs.bg_texture, 0, 0, raylib.WHITE)
-	}
+	draw_parallax_bg()
 
 	raylib.BeginMode2D(gs.camera)
 	draw_map()
@@ -343,6 +367,7 @@ update :: proc() {
 	draw_dash_impact(&gs.player)
 	draw_projectile(&gs.player)
 	draw_orb(&gs.player)
+	draw_whale(&gs.player)
 	raylib.EndMode2D()
 
 	draw_hud()
@@ -374,7 +399,9 @@ shutdown :: proc() {
 	unload_sludges(&gs.sludges)
 	unload_soldiers(&gs.soldiers)
 	unload_map_data()
-	raylib.UnloadTexture(gs.bg_texture)
+	for tex in gs.bg_textures {
+		raylib.UnloadTexture(tex)
+	}
 	raylib.UnloadRenderTexture(gs.render_target)
 	if gs.combat_music_loaded {
 		raylib.UnloadMusicStream(gs.combat_music)
@@ -403,6 +430,8 @@ respawn_player :: proc() {
 	gs.player.waveblade_state = .Idle
 	gs.player.waveblade_damage_active = false
 	gs.player.orb_state = .Inactive
+	gs.player.whale_state = .Idle
+	gs.player.whale_damage_active = false
 }
 
 @(private = "file")
@@ -638,6 +667,282 @@ draw_menu_overlay :: proc() {
 			descs[i]  = weapon_desc(gs.weapon_choices[i])
 		}
 		draw_choice_menu("Choose a Weapon", titles, descs, gs.weapon_count, gs.menu_selected)
+	case .Paused:
+		draw_pause_overlay()
+	}
+}
+
+@(private = "file")
+handle_pause_back :: proc() {
+	switch gs.pause_screen {
+	case .Main:
+		gs.menu = .Playing
+		play_sound(.UI_Negative_Back)
+	case .Controls, .Options:
+		gs.pause_screen = .Main
+		gs.menu_selected = 0
+		play_sound(.UI_Negative_Back)
+	}
+}
+
+@(private = "file")
+update_pause_menu :: proc() {
+	switch gs.pause_screen {
+	case .Main:
+		update_pause_main()
+	case .Controls:
+		// no-op, only ESC/Start to back out
+	case .Options:
+		update_pause_options()
+	}
+}
+
+@(private = "file")
+update_pause_main :: proc() {
+	if input_menu_up() {
+		gs.menu_selected -= 1
+		if gs.menu_selected < 0 {
+			gs.menu_selected = PAUSE_MAIN_ITEM_COUNT - 1
+		}
+	}
+	if input_menu_down() {
+		gs.menu_selected += 1
+		if gs.menu_selected >= PAUSE_MAIN_ITEM_COUNT {
+			gs.menu_selected = 0
+		}
+	}
+	if !input_menu_confirm() {
+		return
+	}
+	switch gs.menu_selected {
+	case 0:
+		gs.menu = .Playing
+		play_sound(.UI_Negative_Back)
+	case 1:
+		gs.pause_screen = .Controls
+		play_sound(.UI_Confirm)
+	case 2:
+		gs.pause_screen = .Options
+		gs.menu_selected = 0
+		play_sound(.UI_Confirm)
+	case 3:
+		when ODIN_ARCH != .wasm32 && ODIN_ARCH != .wasm64p32 {
+			gs.should_quit = true
+			play_sound(.UI_Negative_Back)
+		}
+	}
+}
+
+@(private = "file")
+update_pause_options :: proc() {
+	if input_menu_up() {
+		gs.menu_selected = (gs.menu_selected + 1) % 2
+	}
+	if input_menu_down() {
+		gs.menu_selected = (gs.menu_selected + 1) % 2
+	}
+	delta: f32 = 0
+	if input_menu_left() {
+		delta = -VOLUME_STEP
+	}
+	if input_menu_right() {
+		delta = VOLUME_STEP
+	}
+	if delta == 0 {
+		return
+	}
+	if gs.menu_selected == 0 {
+		gs.music_volume = clamp(gs.music_volume + delta, 0, 1)
+		if gs.combat_music_loaded {
+			raylib.SetMusicVolume(gs.combat_music, MUSIC_BASE_VOLUME * gs.music_volume)
+		}
+	} else {
+		gs.sfx_volume = clamp(gs.sfx_volume + delta, 0, 1)
+		set_master_sfx_volume(gs.sfx_volume)
+	}
+	play_sound(.UI_Confirm)
+}
+
+@(private = "file")
+draw_pause_overlay :: proc() {
+	raylib.DrawRectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, raylib.Color{0, 0, 0, 200})
+
+	switch gs.pause_screen {
+	case .Main:
+		draw_pause_main()
+	case .Controls:
+		draw_pause_controls()
+	case .Options:
+		draw_pause_options()
+	}
+
+	draw_player_stats_panel()
+}
+
+@(private = "file")
+draw_pause_main :: proc() {
+	title: cstring = "PAUSED"
+	tw := raylib.MeasureText(title, 20)
+	raylib.DrawText(title, SCREEN_WIDTH/2 - tw/2, 18, 20, raylib.WHITE)
+
+	items := [PAUSE_MAIN_ITEM_COUNT]cstring{"Resume", "Controls", "Options", "Quit"}
+	for i in 0 ..< PAUSE_MAIN_ITEM_COUNT {
+		item := items[i]
+		color := raylib.WHITE
+		if i == gs.menu_selected {
+			color = raylib.YELLOW
+		}
+		when ODIN_ARCH == .wasm32 || ODIN_ARCH == .wasm64p32 {
+			if i == 3 {
+				dimmed := color
+				dimmed.r /= 2
+				dimmed.g /= 2
+				dimmed.b /= 2
+				color = dimmed
+			}
+		}
+		iw := raylib.MeasureText(item, 14)
+		y := i32(60 + i * 22)
+		raylib.DrawText(item, SCREEN_WIDTH/2 - iw/2, y, 14, color)
+		if i == gs.menu_selected {
+			raylib.DrawText(">", SCREEN_WIDTH/2 - iw/2 - 12, y, 14, raylib.YELLOW)
+		}
+	}
+
+	hint: cstring = "Up/Down + Confirm   |   Esc/B to resume"
+	hw := raylib.MeasureText(hint, 8)
+	raylib.DrawText(hint, SCREEN_WIDTH/2 - hw/2, 160, 8, raylib.LIGHTGRAY)
+}
+
+@(private = "file")
+draw_pause_controls :: proc() {
+	title: cstring = "CONTROLS"
+	tw := raylib.MeasureText(title, 20)
+	raylib.DrawText(title, SCREEN_WIDTH/2 - tw/2, 18, 20, raylib.WHITE)
+
+	gp := gamepad_active()
+	mode_label: cstring = gp ? "Gamepad" : "Keyboard / Mouse"
+	mw := raylib.MeasureText(mode_label, 10)
+	raylib.DrawText(mode_label, SCREEN_WIDTH/2 - mw/2, 44, 10, raylib.LIGHTGRAY)
+
+	rows := [?][2]cstring{
+		{"Move",    gp ? "Left Stick"     : "A / D / Left / Right"},
+		{"Down",    gp ? "Left Stick Down": "S / Down"},
+		{"Jump",    gp ? "A button"       : "W / Up / Space"},
+		{"Attack",  gp ? "X button"       : "J / Left Mouse"},
+		{"Special", gp ? "Y button"       : "K / Right Mouse"},
+		{"Dash",    gp ? "B button"       : "Shift"},
+		{"Pause",   gp ? "Start"          : "Esc"},
+		{"Confirm", gp ? "A button"       : "Enter / Space"},
+		{"Back",    gp ? "B button"       : "Esc"},
+	}
+
+	col_label_x: i32 = 130
+	col_value_x: i32 = 320
+	row_y_start: i32 = 64
+	row_h: i32 = 14
+	for row, i in rows {
+		y := row_y_start + i32(i) * row_h
+		raylib.DrawText(row[0], col_label_x, y, 10, raylib.WHITE)
+		raylib.DrawText(row[1], col_value_x, y, 10, raylib.LIGHTGRAY)
+	}
+
+	hint: cstring = "Esc/B to go back"
+	hw := raylib.MeasureText(hint, 8)
+	raylib.DrawText(hint, SCREEN_WIDTH/2 - hw/2, row_y_start + i32(len(rows)) * row_h + 6, 8, raylib.LIGHTGRAY)
+}
+
+@(private = "file")
+draw_pause_options :: proc() {
+	title: cstring = "OPTIONS"
+	tw := raylib.MeasureText(title, 20)
+	raylib.DrawText(title, SCREEN_WIDTH/2 - tw/2, 18, 20, raylib.WHITE)
+
+	rows := [2]struct{ label: cstring, value: f32 }{
+		{"Music", gs.music_volume},
+		{"SFX",   gs.sfx_volume},
+	}
+
+	row_y_start: i32 = 70
+	row_h: i32 = 24
+	for row, i in rows {
+		y := row_y_start + i32(i) * row_h
+		selected := i == gs.menu_selected
+
+		label_color := selected ? raylib.YELLOW : raylib.WHITE
+		raylib.DrawText(row.label, 200, y, 14, label_color)
+
+		bar_x: i32 = 280
+		bar_w: i32 = 120
+		bar_h: i32 = 8
+		bar_y := y + 3
+
+		raylib.DrawRectangle(bar_x - 1, bar_y - 1, bar_w + 2, bar_h + 2, raylib.Color{0, 0, 0, 220})
+		fill_w := i32(f32(bar_w) * row.value)
+		raylib.DrawRectangle(bar_x, bar_y, fill_w, bar_h, raylib.Color{0xCC, 0xCC, 0x33, 0xFF})
+
+		pct := fmt.ctprintf("%d%%", i32(row.value * 100 + 0.5))
+		raylib.DrawText(pct, bar_x + bar_w + 6, y, 14, label_color)
+
+		if selected {
+			raylib.DrawText("<", bar_x - 14, y, 14, raylib.YELLOW)
+			raylib.DrawText(">", bar_x + bar_w + 60, y, 14, raylib.YELLOW)
+		}
+	}
+
+	hint: cstring = "Up/Down to switch  |  Left/Right to adjust  |  Esc/B to go back"
+	hw := raylib.MeasureText(hint, 8)
+	raylib.DrawText(hint, SCREEN_WIDTH/2 - hw/2, row_y_start + i32(len(rows)) * row_h + 6, 8, raylib.LIGHTGRAY)
+}
+
+@(private = "file")
+draw_player_stats_panel :: proc() {
+	box_x: i32 = 20
+	box_y: i32 = 250
+	box_w: i32 = SCREEN_WIDTH - 40
+	box_h: i32 = 90
+
+	raylib.DrawRectangle(box_x, box_y, box_w, box_h, raylib.Color{0x10, 0x10, 0x28, 230})
+	raylib.DrawRectangleLines(box_x, box_y, box_w, box_h, raylib.Color{0xAA, 0xAA, 0xAA, 255})
+
+	header: cstring = "Player Stats"
+	hw := raylib.MeasureText(header, 12)
+	raylib.DrawText(header, box_x + box_w/2 - hw/2, box_y + 6, 12, raylib.WHITE)
+
+	p := &gs.player
+	caps_note: cstring = p.stats_capped ? " (capped)" : ""
+
+	hp_text   := fmt.ctprintf("HP:        %d / %d%s", i32(p.hp), i32(p.max_hp), caps_note)
+	stam_text := fmt.ctprintf("Stamina:   %d / %d",   i32(p.stamina), i32(p.max_stamina))
+	dmg_text  := fmt.ctprintf("Damage:    +%d%%%s",   i32(p.damage_multiplier * 100 + 0.5), caps_note)
+	crit_text := fmt.ctprintf("Crit:      %d%%%s",    i32(p.crit_chance * 100 + 0.5), caps_note)
+	atks_text := fmt.ctprintf("Atk Speed: +%d%%%s",   i32(p.attack_speed_multiplier * 100 + 0.5), caps_note)
+
+	col_l_x := box_x + 12
+	col_r_x := box_x + box_w/2 + 4
+	row_y_start := box_y + 26
+	row_h: i32 = 14
+
+	raylib.DrawText(hp_text,   col_l_x, row_y_start + 0 * row_h, 10, raylib.WHITE)
+	raylib.DrawText(stam_text, col_l_x, row_y_start + 1 * row_h, 10, raylib.WHITE)
+	raylib.DrawText(dmg_text,  col_l_x, row_y_start + 2 * row_h, 10, raylib.WHITE)
+	raylib.DrawText(crit_text, col_r_x, row_y_start + 0 * row_h, 10, raylib.WHITE)
+	raylib.DrawText(atks_text, col_r_x, row_y_start + 1 * row_h, 10, raylib.WHITE)
+}
+
+@(private = "file")
+draw_parallax_bg :: proc() {
+	speeds := PARALLAX_SPEEDS
+	for i in 0 ..< PARALLAX_LAYER_COUNT {
+		tex := gs.bg_textures[i]
+		if tex.id == 0 {
+			continue
+		}
+		offset := gs.camera.target.x * speeds[i] * gs.camera.zoom
+		wrapped := offset - f32(SCREEN_WIDTH) * math.floor_f32(offset / f32(SCREEN_WIDTH))
+		src := raylib.Rectangle{0, 0, f32(SCREEN_WIDTH), f32(SCREEN_HEIGHT)}
+		raylib.DrawTextureRec(tex, src, {-wrapped, 0}, raylib.WHITE)
+		raylib.DrawTextureRec(tex, src, {f32(SCREEN_WIDTH) - wrapped, 0}, raylib.WHITE)
 	}
 }
 
