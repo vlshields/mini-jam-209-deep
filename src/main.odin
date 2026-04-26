@@ -18,6 +18,8 @@ Game_State :: struct {
 	camera:             raylib.Camera2D,
 	player:             Player,
 	sludges:            Sludge_Pool,
+	soldiers:           Soldier_Pool,
+	wave:               int,
 	spawn_pos:          raylib.Vector2,
 	render_target:      raylib.RenderTexture2D,
 	screen_scale:       f32,
@@ -26,6 +28,7 @@ Game_State :: struct {
 	window_h:           i32,
 	should_quit:        bool,
 	bg_color:           raylib.Color,
+	bg_texture:         raylib.Texture2D,
 	screen_shake:       f32,
 	menu:               Menu_State,
 	menu_selected:      int,
@@ -158,6 +161,39 @@ collect_enemy_spawns :: proc(max_count: int) -> [dynamic]raylib.Vector2 {
 	return positions
 }
 
+@(private = "file")
+collect_bottom_platform_spawns :: proc(max_count: int) -> [dynamic]raylib.Vector2 {
+	max_row := -1
+	for row, ry in gs.map_data.grid {
+		for cell in row {
+			if cell.symbol == 'e' && ry > max_row {
+				max_row = ry
+			}
+		}
+	}
+	positions := make([dynamic]raylib.Vector2, context.temp_allocator)
+	if max_row < 0 {
+		return positions
+	}
+	row := gs.map_data.grid[max_row]
+	for cell, cx in row {
+		if cell.symbol == 'e' {
+			append(&positions, raylib.Vector2{
+				f32(cx) * TILE_SIZE + TILE_SIZE / 2,
+				f32(max_row) * TILE_SIZE + TILE_SIZE,
+			})
+		}
+	}
+	for i := len(positions) - 1; i > 0; i -= 1 {
+		j := int(rand.int31_max(i32(i + 1)))
+		positions[i], positions[j] = positions[j], positions[i]
+	}
+	if len(positions) > max_count {
+		resize(&positions, max_count)
+	}
+	return positions
+}
+
 init :: proc() {
 	raylib.SetConfigFlags({.WINDOW_RESIZABLE})
 	raylib.InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Sandcastle")
@@ -177,6 +213,7 @@ init :: proc() {
 	update_screen_scale()
 
 	gs.bg_color = {0x3d, 0x1f, 0x4c, 0xff}
+	gs.bg_texture = raylib.LoadTexture("assets/tiles/Background.png")
 
 	if !load_map_data(LEVEL_MAP_PATH) {
 		gs.should_quit = true
@@ -191,6 +228,14 @@ init :: proc() {
 	for pos in enemy_positions {
 		register_sludge_slot(&gs.sludges, pos)
 	}
+
+	init_soldiers(&gs.soldiers)
+	soldier_positions := collect_bottom_platform_spawns(MAX_SOLDIER_SLOTS)
+	for pos in soldier_positions {
+		register_soldier_slot(&gs.soldiers, pos)
+	}
+
+	gs.wave = 1
 
 	gs.camera = raylib.Camera2D{
 		zoom   = 2,
@@ -225,6 +270,8 @@ update :: proc() {
 		}
 
 		update_sludges(&gs.sludges, &gs.player, &gs.camera, &gs.map_data, dt)
+		update_soldiers(&gs.soldiers, &gs.player, &gs.camera, &gs.map_data, dt,
+			gs.wave >= SOLDIER_WAVE_THRESHOLD)
 
 		if gs.player.dash_impact_active && !gs.player.dash_impact_damage_dealt {
 			gs.player.dash_impact_damage_dealt = true
@@ -255,11 +302,15 @@ update :: proc() {
 
 	raylib.BeginTextureMode(gs.render_target)
 	raylib.ClearBackground(gs.bg_color)
+	if gs.bg_texture.id > 0 {
+		raylib.DrawTexture(gs.bg_texture, 0, 0, raylib.WHITE)
+	}
 
 	raylib.BeginMode2D(gs.camera)
 	draw_map()
 	draw_doors()
 	draw_sludges(&gs.sludges)
+	draw_soldiers(&gs.soldiers)
 	draw_player(&gs.player)
 	draw_waveblade(&gs.player)
 	draw_dash_impact(&gs.player)
@@ -294,7 +345,9 @@ should_run :: proc() -> bool {
 shutdown :: proc() {
 	unload_player(&gs.player)
 	unload_sludges(&gs.sludges)
+	unload_soldiers(&gs.soldiers)
 	unload_map_data()
+	raylib.UnloadTexture(gs.bg_texture)
 	raylib.UnloadRenderTexture(gs.render_target)
 	raylib.CloseWindow()
 }
@@ -405,7 +458,13 @@ all_enemies_cleared :: proc() -> bool {
 			return false
 		}
 	}
-	return gs.sludges.count > 0
+	if gs.wave >= SOLDIER_WAVE_THRESHOLD {
+		if !soldiers_all_dead(&gs.soldiers, false) {
+			return false
+		}
+	}
+	return gs.sludges.count > 0 ||
+		(gs.wave >= SOLDIER_WAVE_THRESHOLD && gs.soldiers.count > 0)
 }
 
 @(private = "file")
@@ -488,7 +547,9 @@ handle_menu_input :: proc(count: int, on_confirm: proc(int)) {
 @(private = "file")
 close_menu_and_loop :: proc() {
 	gs.menu = .Playing
+	gs.wave += 1
 	reset_sludges(&gs.sludges)
+	reset_soldiers(&gs.soldiers)
 }
 
 @(private = "file")
