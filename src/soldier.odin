@@ -96,7 +96,11 @@ register_soldier_slot :: proc(pool: ^Soldier_Pool, pos: raylib.Vector2) {
 reset_soldiers :: proc(pool: ^Soldier_Pool) {
 	for i := 0; i < pool.count; i += 1 {
 		spawn := pool.slots[i].spawn_pos
-		pool.slots[i] = Sludge_Soldier{pos = spawn, spawn_pos = spawn, state = .Unspawned}
+		st: Soldier_State = .Unspawned
+		if rand.float32() >= SOLDIER_SPAWN_CHANCE {
+			st = .Dead
+		}
+		pool.slots[i] = Sludge_Soldier{pos = spawn, spawn_pos = spawn, state = st}
 	}
 }
 
@@ -151,15 +155,16 @@ update_soldiers :: proc(
 		if alive < MAX_SOLDIER_ALIVE {
 			for i := 0; i < pool.count && alive < MAX_SOLDIER_ALIVE; i += 1 {
 				s := &pool.slots[i]
-				if s.state == .Unspawned {
-					s.state = .Spawning
-					s.hp = SOLDIER_HP
-					s.attack_range = rand.float32_range(SOLDIER_RANGE_MIN, SOLDIER_RANGE_MAX)
-					s.current_frame = 0
-					s.anim_timer = 0
-					s.fired_this_attack = false
-					alive += 1
+				if s.state != .Unspawned {
+					continue
 				}
+				s.state = .Spawning
+				s.hp = SOLDIER_HP
+				s.attack_range = rand.float32_range(SOLDIER_RANGE_MIN, SOLDIER_RANGE_MAX)
+				s.current_frame = 0
+				s.anim_timer = 0
+				s.fired_this_attack = false
+				alive += 1
 			}
 		}
 	}
@@ -447,14 +452,21 @@ draw_soldiers :: proc(pool: ^Soldier_Pool) {
 			}
 
 			tint := raylib.WHITE
+			flashing := false
 			if s.state == .Dying {
 				t := clamp(s.death_timer / SOLDIER_DEATH_DURATION, 0, 1)
 				tint.a = u8(255.0 * t)
 			} else if s.damage_flash_timer > 0 {
-				tint = raylib.Color{255, 90, 90, 255}
+				flashing = true
 			}
 
+			if flashing {
+				begin_hitflash(1.0)
+			}
 			raylib.DrawTexturePro(tex, src, dst, {0, 0}, 0, tint)
+			if flashing {
+				end_hitflash()
+			}
 		}
 
 		if s.projectile.state == .Flying {

@@ -75,10 +75,24 @@ register_sludge_slot :: proc(pool: ^Sludge_Pool, pos: raylib.Vector2) {
 	pool.count += 1
 }
 
-reset_sludges :: proc(pool: ^Sludge_Pool) {
-	for i := 0; i < pool.count; i += 1 {
-		spawn := pool.slots[i].spawn_pos
-		pool.slots[i] = Sludge{pos = spawn, spawn_pos = spawn, state = .Unspawned}
+reset_sludges :: proc(pool: ^Sludge_Pool, target: int) {
+	indices := make([]int, pool.count, context.temp_allocator)
+	for i in 0 ..< pool.count {
+		indices[i] = i
+	}
+	for i := pool.count - 1; i > 0; i -= 1 {
+		j := int(rand.int31_max(i32(i + 1)))
+		indices[i], indices[j] = indices[j], indices[i]
+	}
+	n := min(target, pool.count)
+	for k in 0 ..< pool.count {
+		idx := indices[k]
+		spawn := pool.slots[idx].spawn_pos
+		st: Sludge_State = .Unspawned
+		if k >= n {
+			st = .Dead
+		}
+		pool.slots[idx] = Sludge{pos = spawn, spawn_pos = spawn, state = st}
 	}
 }
 
@@ -407,14 +421,21 @@ draw_sludges :: proc(pool: ^Sludge_Pool) {
 		}
 
 		tint := raylib.WHITE
+		flashing := false
 		if s.state == .Dying {
 			t := clamp(s.death_timer / SLUDGE_DEATH_DURATION, 0, 1)
 			tint.a = u8(255.0 * t)
 		} else if s.damage_flash_timer > 0 {
-			tint = raylib.Color{255, 90, 90, 255}
+			flashing = true
 		}
 
+		if flashing {
+			begin_hitflash(1.0)
+		}
 		raylib.DrawTexturePro(tex, src, dst, {0, 0}, 0, tint)
+		if flashing {
+			end_hitflash()
+		}
 	}
 }
 

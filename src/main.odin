@@ -12,7 +12,11 @@ Menu_State :: enum {
 	Choosing_Stats,
 	Choosing_Weapon,
 	Paused,
+	Game_Over,
 }
+
+GAME_OVER_FADE_DURATION :: f32(2.0)
+GAME_OVER_MENU_DELAY    :: f32(1.2)
 
 Pause_Screen :: enum {
 	Main,
@@ -51,6 +55,7 @@ Game_State :: struct {
 	pause_screen:       Pause_Screen,
 	music_volume:       f32,
 	sfx_volume:         f32,
+	game_over_timer:    f32,
 }
 
 @(private = "file")
@@ -225,6 +230,7 @@ init :: proc() {
 
 	gs.render_target = raylib.LoadRenderTexture(SCREEN_WIDTH, SCREEN_HEIGHT)
 	raylib.SetTextureFilter(gs.render_target.texture, .POINT)
+	init_hitflash_shader()
 	update_screen_scale()
 
 	gs.bg_color = {0x3d, 0x1f, 0x4c, 0xff}
@@ -267,6 +273,8 @@ init :: proc() {
 	}
 
 	gs.wave = 1
+	reset_sludges(&gs.sludges, compute_wave_sludge_target(gs.wave))
+	reset_soldiers(&gs.soldiers)
 
 	gs.camera = raylib.Camera2D{
 		zoom   = 2,
@@ -278,6 +286,32 @@ init :: proc() {
 	gs.weapons_available[.Double_Strike] = true
 	gs.weapons_available[.Waveblade] = true
 	gs.weapons_available[.Orb] = true
+}
+
+compute_wave_sludge_target :: proc(wave: int) -> int {
+	if wave <= 2 {
+		return WAVE_BASE_SLUDGES
+	}
+	capped := min(wave, WAVE_LAST_INCREMENT)
+	return WAVE_BASE_SLUDGES + (capped - 2) * WAVE_SLUDGE_INCREMENT
+}
+
+@(private = "file")
+count_remaining_enemies :: proc() -> int {
+	n := 0
+	for i := 0; i < gs.sludges.count; i += 1 {
+		if gs.sludges.slots[i].state != .Dead {
+			n += 1
+		}
+	}
+	if gs.wave >= SOLDIER_WAVE_THRESHOLD {
+		for i := 0; i < gs.soldiers.count; i += 1 {
+			if gs.soldiers.slots[i].state != .Dead {
+				n += 1
+			}
+		}
+	}
+	return n
 }
 
 update :: proc() {
@@ -328,10 +362,10 @@ update :: proc() {
 		}
 
 		if gs.player.hp <= 0 {
-			respawn_player()
+			enter_game_over()
+		} else {
+			check_door_entry()
 		}
-
-		check_door_entry()
 
 	case .Choosing_Stats:
 		handle_menu_input(3, proc(idx: int) {
@@ -349,6 +383,9 @@ update :: proc() {
 
 	case .Paused:
 		update_pause_menu()
+
+	case .Game_Over:
+		update_game_over(dt)
 	}
 
 	update_camera(dt)
@@ -403,6 +440,7 @@ shutdown :: proc() {
 		raylib.UnloadTexture(tex)
 	}
 	raylib.UnloadRenderTexture(gs.render_target)
+	unload_hitflash_shader()
 	if gs.combat_music_loaded {
 		raylib.UnloadMusicStream(gs.combat_music)
 	}
@@ -412,26 +450,69 @@ shutdown :: proc() {
 }
 
 @(private = "file")
-respawn_player :: proc() {
-	gs.player.pos = gs.spawn_pos
-	gs.player.vel = {}
-	gs.player.hp = gs.player.max_hp
-	gs.player.stamina = gs.player.max_stamina
-	gs.player.damage_flash_timer = 0
-	gs.player.invuln_timer = PLAYER_INVULN_DURATION
-	gs.player.dashing = false
-	gs.player.down_dashing = false
-	gs.player.dash_timer = 0
-	gs.player.dash_cooldown = 0
-	gs.player.dash_impact_active = false
-	gs.player.quick_attack_state = .None
-	gs.player.quick_attack_cooldown = 0
-	gs.player.projectile.state = .Inactive
-	gs.player.waveblade_state = .Idle
-	gs.player.waveblade_damage_active = false
-	gs.player.orb_state = .Inactive
-	gs.player.whale_state = .Idle
-	gs.player.whale_damage_active = false
+enter_game_over :: proc() {
+	gs.menu = .Game_Over
+	gs.game_over_timer = 0
+	play_sound(.You_Died)
+	if gs.combat_music_loaded {
+		raylib.StopMusicStream(gs.combat_music)
+	}
+}
+
+@(private = "file")
+update_game_over :: proc(dt: f32) {
+	gs.game_over_timer += dt
+	if gs.game_over_timer >= GAME_OVER_FADE_DURATION && input_menu_confirm() {
+		restart_run()
+	}
+}
+
+@(private = "file")
+draw_game_over :: proc() {
+	fade_t := clamp(gs.game_over_timer / GAME_OVER_FADE_DURATION, 0, 1)
+	eased := 1 - (1 - fade_t) * (1 - fade_t)
+	overlay_alpha := u8(eased * 255)
+	raylib.DrawRectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, raylib.Color{0, 0, 0, overlay_alpha})
+
+	menu_t := clamp(
+		(gs.game_over_timer - GAME_OVER_MENU_DELAY) / (GAME_OVER_FADE_DURATION - GAME_OVER_MENU_DELAY),
+		0, 1,
+	)
+	if menu_t <= 0 {
+		return
+	}
+	menu_alpha := u8(menu_t * 255)
+
+	title: cstring = "YOU DIED"
+	title_w := raylib.MeasureText(title, 20)
+	raylib.DrawText(
+		title, (SCREEN_WIDTH - title_w) / 2, SCREEN_HEIGHT / 2 - 20, 20,
+		raylib.Color{0xFF, 0x33, 0x33, menu_alpha},
+	)
+
+	sub: cstring = gamepad_active() ? "Press A to play again" : "Press ENTER to play again"
+	sub_w := raylib.MeasureText(sub, 10)
+	raylib.DrawText(
+		sub, (SCREEN_WIDTH - sub_w) / 2, SCREEN_HEIGHT / 2 + 10, 10,
+		raylib.Color{255, 255, 255, menu_alpha},
+	)
+}
+
+@(private = "file")
+restart_run :: proc() {
+	reset_player_run_state(&gs.player, gs.spawn_pos)
+	gs.wave = 1
+	reset_sludges(&gs.sludges, compute_wave_sludge_target(gs.wave))
+	reset_soldiers(&gs.soldiers)
+	gs.weapons_available = {}
+	gs.weapons_available[.Double_Strike] = true
+	gs.weapons_available[.Waveblade] = true
+	gs.weapons_available[.Orb] = true
+	gs.menu = .Playing
+	gs.game_over_timer = 0
+	if gs.combat_music_loaded {
+		raylib.PlayMusicStream(gs.combat_music)
+	}
 }
 
 @(private = "file")
@@ -462,6 +543,13 @@ draw_hud :: proc() {
 
 	stam_text := fmt.ctprintf("%d/%d", i32(gs.player.stamina), i32(gs.player.max_stamina))
 	raylib.DrawText(stam_text, BAR_X + BAR_W + 4, STAM_Y - 2, 8, raylib.Color{0xCC, 0xCC, 0x33, 0xFF})
+
+	remaining := count_remaining_enemies()
+	if remaining > 0 {
+		label: cstring = remaining == 1 ? "1 enemy remaining" : fmt.ctprintf("%d enemies remaining", remaining)
+		tw := raylib.MeasureText(label, 8)
+		raylib.DrawText(label, SCREEN_WIDTH - tw - 8, BAR_Y, 8, raylib.WHITE)
+	}
 }
 
 parent_window_size_changed :: proc(w, h: int) {
@@ -611,7 +699,7 @@ handle_menu_input :: proc(count: int, on_confirm: proc(int)) {
 close_menu_and_loop :: proc() {
 	gs.menu = .Playing
 	gs.wave += 1
-	reset_sludges(&gs.sludges)
+	reset_sludges(&gs.sludges, compute_wave_sludge_target(gs.wave))
 	reset_soldiers(&gs.soldiers)
 }
 
@@ -669,6 +757,8 @@ draw_menu_overlay :: proc() {
 		draw_choice_menu("Choose a Weapon", titles, descs, gs.weapon_count, gs.menu_selected)
 	case .Paused:
 		draw_pause_overlay()
+	case .Game_Over:
+		draw_game_over()
 	}
 }
 

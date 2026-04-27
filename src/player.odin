@@ -225,6 +225,48 @@ init_player :: proc(p: ^Player, spawn: raylib.Vector2) {
 	p.projectile.return_frames = int(p.projectile.return_tex.width) / PROJECTILE_SRC_SIZE
 }
 
+reset_player_run_state :: proc(p: ^Player, spawn: raylib.Vector2) {
+	p.pos = spawn
+	p.vel = {}
+	p.on_ground = false
+	p.jumps_left = MAX_JUMPS
+	p.facing_left = false
+	p.moving = false
+	p.max_hp = PLAYER_MAX_HP
+	p.max_stamina = PLAYER_MAX_STAMINA
+	p.hp = p.max_hp
+	p.stamina = p.max_stamina
+	p.damage_multiplier = 0
+	p.crit_chance = 0
+	p.attack_speed_multiplier = 0
+	p.has_double_strike = false
+	p.damage_flash_timer = 0
+	p.invuln_timer = 0
+	p.current_frame = 0
+	p.anim_timer = 0
+	p.dashing = false
+	p.down_dashing = false
+	p.dash_timer = 0
+	p.dash_cooldown = 0
+	p.dash_dir = 1
+	p.dash_impact_active = false
+	p.dash_impact_damage_dealt = false
+	p.quick_attack_state = .None
+	p.quick_attack_cooldown = 0
+	p.quick_attack_damage_active = false
+	p.chain_buffered = false
+	p.x_weapon = .Base_Combo
+	p.y_weapon = .Boomerang
+	p.waveblade_state = .Idle
+	p.waveblade_damage_active = false
+	p.orb_state = .Inactive
+	p.whale_state = .Idle
+	p.whale_damage_active = false
+	p.stats_capped = false
+	p.projectile.state = .Inactive
+	p.particles = {}
+}
+
 unload_player :: proc(p: ^Player) {
 	raylib.UnloadTexture(p.idle_tex)
 	raylib.UnloadTexture(p.move_tex)
@@ -469,14 +511,19 @@ draw_player :: proc(p: ^Player) {
 		SPRITE_DST_SIZE,
 	}
 	tint := raylib.WHITE
-	if p.damage_flash_timer > 0 {
-		tint = raylib.Color{255, 100, 100, 255}
-	} else if p.invuln_timer > 0 {
+	flashing := p.damage_flash_timer > 0
+	if !flashing && p.invuln_timer > 0 {
 		if int(p.invuln_timer * 20) % 2 == 0 {
 			tint = raylib.Color{255, 255, 255, 120}
 		}
 	}
+	if flashing {
+		begin_hitflash(1.0)
+	}
 	raylib.DrawTexturePro(tex, src, dst, {0, 0}, 0, tint)
+	if flashing {
+		end_hitflash()
+	}
 
 	if p.quick_attack_state == .Attack1 || p.quick_attack_state == .Attack2 {
 		qa_tex := p.quick_attack_state == .Attack1 ? p.attack1_tex : p.attack2_tex
