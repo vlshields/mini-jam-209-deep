@@ -8,6 +8,7 @@ import "core:math/rand"
 import "core:strings"
 
 Menu_State :: enum {
+	Main_Menu,
 	Playing,
 	Choosing_Stats,
 	Choosing_Weapon,
@@ -25,6 +26,13 @@ Pause_Screen :: enum {
 }
 
 PAUSE_MAIN_ITEM_COUNT :: 4
+
+Main_Menu_Screen :: enum {
+	Main,
+	Options,
+	Controls,
+	Audio,
+}
 
 Game_State :: struct {
 	map_data:           dm.Dot_Map,
@@ -56,6 +64,12 @@ Game_State :: struct {
 	music_volume:       f32,
 	sfx_volume:         f32,
 	game_over_timer:    f32,
+	main_menu_screen:   Main_Menu_Screen,
+	main_menu_timer:    f32,
+	main_menu_title_y:  f32,
+	main_menu_items_x:  f32,
+	main_menu_idle_frame: int,
+	main_menu_idle_timer: f32,
 }
 
 @(private = "file")
@@ -282,10 +296,14 @@ init :: proc() {
 		target = gs.player.pos,
 	}
 
-	gs.menu = .Playing
+	gs.menu = .Main_Menu
+	gs.main_menu_screen = .Main
+	gs.menu_selected = 0
+	gs.main_menu_timer = 0
 	gs.weapons_available[.Double_Strike] = true
 	gs.weapons_available[.Waveblade] = true
 	gs.weapons_available[.Orb] = true
+	gs.weapons_available[.Giant_Whale] = true
 }
 
 compute_wave_sludge_target :: proc(wave: int) -> int {
@@ -329,10 +347,12 @@ update :: proc() {
 		play_sound(.UI_Confirm)
 	} else if gs.menu == .Paused && input_menu_back() {
 		handle_pause_back()
+	} else if gs.menu == .Main_Menu && input_menu_back() {
+		handle_main_menu_back()
 	}
 
 	if gs.combat_music_loaded {
-		if gs.menu == .Playing {
+		if gs.menu == .Playing || gs.menu == .Main_Menu {
 			raylib.ResumeMusicStream(gs.combat_music)
 		} else {
 			raylib.PauseMusicStream(gs.combat_music)
@@ -341,6 +361,9 @@ update :: proc() {
 	}
 
 	switch gs.menu {
+	case .Main_Menu:
+		update_main_menu(dt)
+
 	case .Playing:
 		prev_dash_impact := gs.player.dash_impact_active
 		prev_hp := gs.player.hp
@@ -388,27 +411,35 @@ update :: proc() {
 		update_game_over(dt)
 	}
 
-	update_camera(dt)
+	if gs.menu != .Main_Menu {
+		update_camera(dt)
+	}
 
 	raylib.BeginTextureMode(gs.render_target)
 	raylib.ClearBackground(gs.bg_color)
-	draw_parallax_bg()
 
-	raylib.BeginMode2D(gs.camera)
-	draw_map()
-	draw_doors()
-	draw_sludges(&gs.sludges)
-	draw_soldiers(&gs.soldiers)
-	draw_player(&gs.player)
-	draw_waveblade(&gs.player)
-	draw_dash_impact(&gs.player)
-	draw_projectile(&gs.player)
-	draw_orb(&gs.player)
-	draw_whale(&gs.player)
-	raylib.EndMode2D()
+	if gs.menu == .Main_Menu {
+		draw_main_menu()
+	} else {
+		draw_parallax_bg()
 
-	draw_hud()
-	draw_menu_overlay()
+		raylib.BeginMode2D(gs.camera)
+		draw_map()
+		draw_doors()
+		draw_sludges(&gs.sludges)
+		draw_soldiers(&gs.soldiers)
+		draw_player(&gs.player)
+		draw_waveblade(&gs.player)
+		draw_dash_impact(&gs.player)
+		draw_projectile(&gs.player)
+		draw_orb(&gs.player)
+		draw_whale(&gs.player)
+		raylib.EndMode2D()
+
+		draw_hud()
+		draw_choose_prompt()
+		draw_menu_overlay()
+	}
 
 	raylib.EndTextureMode()
 
@@ -508,6 +539,7 @@ restart_run :: proc() {
 	gs.weapons_available[.Double_Strike] = true
 	gs.weapons_available[.Waveblade] = true
 	gs.weapons_available[.Orb] = true
+	gs.weapons_available[.Giant_Whale] = true
 	gs.menu = .Playing
 	gs.game_over_timer = 0
 	if gs.combat_music_loaded {
@@ -704,8 +736,28 @@ close_menu_and_loop :: proc() {
 }
 
 @(private = "file")
-draw_doors :: proc() {
-	cleared := all_enemies_cleared()
+draw_choose_prompt :: proc() {
+	if gs.menu != .Playing {
+		return
+	}
+	if !all_enemies_cleared() {
+		return
+	}
+
+	msg: cstring = "Choose an upgrade!"
+	tw := raylib.MeasureText(msg, CHOOSE_PROMPT_TEXT_SIZE)
+	tx := SCREEN_WIDTH/2 - tw/2
+	ty := CHOOSE_PROMPT_TEXT_Y
+
+	pulse := math.sin(f32(raylib.GetTime()) * CHOOSE_PROMPT_PULSE_HZ) * 0.5 + 0.5
+	bg_alpha := u8(140 + pulse * 80)
+	raylib.DrawRectangle(tx - 10, ty - 5, tw + 20, CHOOSE_PROMPT_TEXT_SIZE + 10, raylib.Color{0, 0, 0, bg_alpha})
+	raylib.DrawRectangleLines(tx - 10, ty - 5, tw + 20, CHOOSE_PROMPT_TEXT_SIZE + 10, raylib.Color{0xFF, 0xE5, 0x99, 255})
+	raylib.DrawText(msg, tx + 1, ty + 1, CHOOSE_PROMPT_TEXT_SIZE, raylib.Color{0, 0, 0, 200})
+	raylib.DrawText(msg, tx, ty, CHOOSE_PROMPT_TEXT_SIZE, raylib.Color{0xFF, 0xE5, 0x99, 255})
+
+	bob := math.sin(f32(raylib.GetTime()) * CHOOSE_ARROW_BOB_HZ) * CHOOSE_ARROW_BOB_AMP
+
 	for ry in 0 ..< len(gs.map_data.grid) {
 		row := gs.map_data.grid[ry]
 		for cx in 0 ..< len(row) {
@@ -713,23 +765,62 @@ draw_doors :: proc() {
 			if sym != 'd' && sym != 'D' {
 				continue
 			}
-			x := i32(cx * TILE_SIZE)
-			y := i32(ry * TILE_SIZE)
+			world_x := f32(cx * TILE_SIZE) + TILE_SIZE / 2
+			world_y := f32(ry * TILE_SIZE)
+			screen_pos := raylib.GetWorldToScreen2D({world_x, world_y}, gs.camera)
+
+			if screen_pos.x < -20 || screen_pos.x > SCREEN_WIDTH + 20 {
+				continue
+			}
+			if screen_pos.y < -20 || screen_pos.y > SCREEN_HEIGHT + 20 {
+				continue
+			}
+
+			ax := screen_pos.x
+			ay := screen_pos.y - 14 + bob
+
 			color: raylib.Color
-			label: cstring
 			if sym == 'd' {
-				color = raylib.Color{0x55, 0xCC, 0x55, 220}
-				label = "S"
+				color = raylib.Color{0x55, 0xFF, 0x55, 255}
 			} else {
-				color = raylib.Color{0xCC, 0x55, 0xCC, 220}
-				label = "W"
+				color = raylib.Color{0xFF, 0x88, 0xFF, 255}
 			}
-			if !cleared {
-				color.a = 70
+
+			top_left  := raylib.Vector2{ax - 7, ay - 7}
+			top_right := raylib.Vector2{ax + 7, ay - 7}
+			bottom    := raylib.Vector2{ax,     ay + 5}
+
+			raylib.DrawTriangle(top_left, bottom, top_right, color)
+			raylib.DrawLineEx(top_left,  bottom,    1, raylib.WHITE)
+			raylib.DrawLineEx(bottom,    top_right, 1, raylib.WHITE)
+			raylib.DrawLineEx(top_right, top_left,  1, raylib.WHITE)
+		}
+	}
+}
+
+@(private = "file")
+draw_doors :: proc() {
+	if !all_enemies_cleared() {
+		return
+	}
+	for ry in 0 ..< len(gs.map_data.grid) {
+		row := gs.map_data.grid[ry]
+		for cx in 0 ..< len(row) {
+			sym := row[cx].symbol
+			if sym != 'd' && sym != 'D' {
+				continue
 			}
-			raylib.DrawRectangle(x, y, TILE_SIZE, TILE_SIZE, color)
-			raylib.DrawRectangleLines(x, y, TILE_SIZE, TILE_SIZE, raylib.WHITE)
-			raylib.DrawText(label, x + 5, y + 3, 10, raylib.WHITE)
+			cxp := i32(cx * TILE_SIZE + TILE_SIZE / 2)
+			cyp := i32(ry * TILE_SIZE + TILE_SIZE / 2)
+			inner, outer: raylib.Color
+			if sym == 'd' {
+				inner = raylib.Color{0xC0, 0xFF, 0x80, 0xFF}
+				outer = raylib.Color{0x20, 0x70, 0x20, 0x00}
+			} else {
+				inner = raylib.Color{0xE0, 0xF8, 0xFF, 0xFF}
+				outer = raylib.Color{0x10, 0x40, 0x90, 0x00}
+			}
+			raylib.DrawCircleGradient(cxp, cyp, 14, inner, outer)
 		}
 	}
 }
@@ -737,7 +828,7 @@ draw_doors :: proc() {
 @(private = "file")
 draw_menu_overlay :: proc() {
 	switch gs.menu {
-	case .Playing:
+	case .Main_Menu, .Playing:
 		return
 	case .Choosing_Stats:
 		titles := make([]string, 3, context.temp_allocator)
@@ -1089,4 +1180,256 @@ draw_map :: proc() {
 			raylib.DrawTexture(tex, i32(draw_x), i32(draw_y), raylib.WHITE)
 		}
 	}
+}
+
+@(private = "file")
+update_main_menu :: proc(dt: f32) {
+	gs.main_menu_timer += dt
+
+	title_t := min(gs.main_menu_timer / MAIN_MENU_TITLE_ANIM_DUR, 1.0)
+	inv_t := 1.0 - title_t
+	title_ease := 1.0 - inv_t * inv_t * inv_t
+	gs.main_menu_title_y = MAIN_MENU_TITLE_START_Y +
+		(MAIN_MENU_TITLE_REST_Y - MAIN_MENU_TITLE_START_Y) * title_ease
+
+	items_elapsed := max(gs.main_menu_timer - MAIN_MENU_ITEMS_DELAY, 0.0)
+	items_t := min(items_elapsed / MAIN_MENU_ITEMS_ANIM_DUR, 1.0)
+	inv_it := 1.0 - items_t
+	items_ease := 1.0 - inv_it * inv_it * inv_it
+	gs.main_menu_items_x = MAIN_MENU_ITEMS_OFFSET * (1.0 - items_ease)
+
+	idle_frames := gs.player.idle_frames
+	if idle_frames > 1 {
+		gs.main_menu_idle_timer += dt
+		if gs.main_menu_idle_timer >= PLAYER_IDLE_ANIM_SPEED {
+			gs.main_menu_idle_timer -= PLAYER_IDLE_ANIM_SPEED
+			gs.main_menu_idle_frame += 1
+			if gs.main_menu_idle_frame >= idle_frames {
+				gs.main_menu_idle_frame = 0
+			}
+		}
+	}
+
+	switch gs.main_menu_screen {
+	case .Main:
+		update_main_menu_main()
+	case .Options:
+		update_main_menu_options()
+	case .Controls:
+		// only ESC/Start to back out
+	case .Audio:
+		update_pause_options()
+	}
+}
+
+@(private = "file")
+update_main_menu_main :: proc() {
+	if input_menu_up() {
+		gs.menu_selected -= 1
+		if gs.menu_selected < 0 {
+			gs.menu_selected = MAIN_MENU_ITEM_COUNT - 1
+		}
+	}
+	if input_menu_down() {
+		gs.menu_selected += 1
+		if gs.menu_selected >= MAIN_MENU_ITEM_COUNT {
+			gs.menu_selected = 0
+		}
+	}
+	if !input_menu_confirm() {
+		return
+	}
+	switch gs.menu_selected {
+	case 0:
+		gs.menu = .Playing
+		play_sound(.UI_Confirm)
+	case 1:
+		gs.main_menu_screen = .Options
+		gs.menu_selected = 0
+		play_sound(.UI_Confirm)
+	case 2:
+		when ODIN_ARCH != .wasm32 && ODIN_ARCH != .wasm64p32 {
+			gs.should_quit = true
+			play_sound(.UI_Negative_Back)
+		}
+	}
+}
+
+@(private = "file")
+update_main_menu_options :: proc() {
+	if input_menu_up() {
+		gs.menu_selected -= 1
+		if gs.menu_selected < 0 {
+			gs.menu_selected = MAIN_MENU_OPTIONS_ITEM_COUNT - 1
+		}
+	}
+	if input_menu_down() {
+		gs.menu_selected += 1
+		if gs.menu_selected >= MAIN_MENU_OPTIONS_ITEM_COUNT {
+			gs.menu_selected = 0
+		}
+	}
+	if !input_menu_confirm() {
+		return
+	}
+	switch gs.menu_selected {
+	case 0:
+		gs.main_menu_screen = .Audio
+		gs.menu_selected = 0
+		play_sound(.UI_Confirm)
+	case 1:
+		gs.main_menu_screen = .Controls
+		play_sound(.UI_Confirm)
+	}
+}
+
+@(private = "file")
+handle_main_menu_back :: proc() {
+	switch gs.main_menu_screen {
+	case .Main:
+		// nothing to do — already at top level
+	case .Options:
+		gs.main_menu_screen = .Main
+		gs.menu_selected = 1
+		play_sound(.UI_Negative_Back)
+	case .Controls, .Audio:
+		gs.main_menu_screen = .Options
+		gs.menu_selected = 0
+		play_sound(.UI_Negative_Back)
+	}
+}
+
+@(private = "file")
+draw_main_menu :: proc() {
+	draw_main_menu_parallax()
+
+	switch gs.main_menu_screen {
+	case .Main:
+		draw_main_menu_idle_sprite()
+		draw_main_menu_title()
+		draw_main_menu_items()
+	case .Options:
+		raylib.DrawRectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, raylib.Color{0, 0, 0, 200})
+		draw_main_menu_options_panel()
+	case .Controls:
+		raylib.DrawRectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, raylib.Color{0, 0, 0, 200})
+		draw_pause_controls()
+	case .Audio:
+		raylib.DrawRectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, raylib.Color{0, 0, 0, 200})
+		draw_pause_options()
+	}
+}
+
+@(private = "file")
+draw_main_menu_parallax :: proc() {
+	speeds := PARALLAX_SPEEDS
+	scroll := gs.main_menu_timer * 30
+	for i in 0 ..< PARALLAX_LAYER_COUNT {
+		tex := gs.bg_textures[i]
+		if tex.id == 0 {
+			continue
+		}
+		offset := scroll * speeds[i] * 4
+		wrapped := offset - f32(SCREEN_WIDTH) * math.floor_f32(offset / f32(SCREEN_WIDTH))
+		src := raylib.Rectangle{0, 0, f32(SCREEN_WIDTH), f32(SCREEN_HEIGHT)}
+		raylib.DrawTextureRec(tex, src, {-wrapped, 0}, raylib.WHITE)
+		raylib.DrawTextureRec(tex, src, {f32(SCREEN_WIDTH) - wrapped, 0}, raylib.WHITE)
+	}
+}
+
+@(private = "file")
+draw_main_menu_idle_sprite :: proc() {
+	if gs.player.idle_tex.id == 0 || gs.player.idle_frames <= 0 {
+		return
+	}
+	frame := gs.main_menu_idle_frame
+	if frame >= gs.player.idle_frames {
+		frame = 0
+	}
+	src := raylib.Rectangle{
+		f32(frame * SPRITE_SRC_SIZE), 0,
+		f32(SPRITE_SRC_SIZE),
+		f32(SPRITE_SRC_SIZE),
+	}
+	dst := raylib.Rectangle{
+		f32(SCREEN_WIDTH) * 0.78 - MAIN_MENU_SPRITE_SIZE / 2,
+		f32(SCREEN_HEIGHT) * 0.62 - MAIN_MENU_SPRITE_SIZE / 2,
+		MAIN_MENU_SPRITE_SIZE,
+		MAIN_MENU_SPRITE_SIZE,
+	}
+	raylib.DrawTexturePro(gs.player.idle_tex, src, dst, {0, 0}, 0, raylib.WHITE)
+}
+
+@(private = "file")
+draw_main_menu_title :: proc() {
+	title : cstring = "Ziusudra's Last Stand"
+	title_w := raylib.MeasureText(title, MAIN_MENU_TITLE_SIZE)
+	title_x := (SCREEN_WIDTH - title_w) / 2
+	raylib.DrawText(title, title_x + 2, i32(gs.main_menu_title_y) + 2, MAIN_MENU_TITLE_SIZE, raylib.Color{0, 0, 0, 180})
+	raylib.DrawText(title, title_x, i32(gs.main_menu_title_y), MAIN_MENU_TITLE_SIZE, raylib.Color{0xFF, 0xE5, 0x99, 0xFF})
+
+	subtitle : cstring = "Your life, or the lives of your people"
+	sub_w := raylib.MeasureText(subtitle, MAIN_MENU_SUBTITLE_SIZE)
+	sub_y := i32(gs.main_menu_title_y) + MAIN_MENU_TITLE_SIZE + 4
+	raylib.DrawText(subtitle, (SCREEN_WIDTH - sub_w) / 2, sub_y, MAIN_MENU_SUBTITLE_SIZE, raylib.Color{220, 220, 220, 255})
+}
+
+@(private = "file")
+draw_main_menu_items :: proc() {
+	when ODIN_ARCH == .wasm32 || ODIN_ARCH == .wasm64p32 {
+		items := [MAIN_MENU_ITEM_COUNT]cstring{"PLAY", "OPTIONS"}
+	} else {
+		items := [MAIN_MENU_ITEM_COUNT]cstring{"PLAY", "OPTIONS", "QUIT"}
+	}
+
+	for item, i in items {
+		item_w := raylib.MeasureText(item, MAIN_MENU_ITEM_SIZE)
+		item_x := (SCREEN_WIDTH - item_w) / 2 + i32(gs.main_menu_items_x)
+		item_y := MAIN_MENU_ITEM_BASE_Y + i32(i) * MAIN_MENU_ITEM_SPACING
+
+		color := raylib.Color{170, 170, 170, 255}
+		if i == gs.menu_selected {
+			color = raylib.YELLOW
+		}
+		raylib.DrawText(item, item_x, item_y, MAIN_MENU_ITEM_SIZE, color)
+	}
+
+	if gs.menu_selected >= 0 && gs.menu_selected < MAIN_MENU_ITEM_COUNT {
+		sel_item := items[gs.menu_selected]
+		sel_w := raylib.MeasureText(sel_item, MAIN_MENU_ITEM_SIZE)
+		arrow_x := (SCREEN_WIDTH - sel_w) / 2 + i32(gs.main_menu_items_x) - 16
+		arrow_y := MAIN_MENU_ITEM_BASE_Y + i32(gs.menu_selected) * MAIN_MENU_ITEM_SPACING
+		raylib.DrawText(">", arrow_x, arrow_y, MAIN_MENU_ITEM_SIZE, raylib.YELLOW)
+	}
+
+	hint: cstring = "Up/Down + Confirm"
+	hw := raylib.MeasureText(hint, MAIN_MENU_HINT_SIZE)
+	raylib.DrawText(hint, (SCREEN_WIDTH - hw) / 2, SCREEN_HEIGHT - 16, MAIN_MENU_HINT_SIZE, raylib.Color{180, 180, 180, 255})
+}
+
+@(private = "file")
+draw_main_menu_options_panel :: proc() {
+	title: cstring = "OPTIONS"
+	tw := raylib.MeasureText(title, 20)
+	raylib.DrawText(title, SCREEN_WIDTH/2 - tw/2, 18, 20, raylib.WHITE)
+
+	items := [MAIN_MENU_OPTIONS_ITEM_COUNT]cstring{"AUDIO", "CONTROLS"}
+
+	for item, i in items {
+		iw := raylib.MeasureText(item, MAIN_MENU_ITEM_SIZE)
+		ix := SCREEN_WIDTH/2 - iw/2
+		iy := MAIN_MENU_OPTIONS_BASE_Y + i32(i) * MAIN_MENU_OPTIONS_SPACING
+		color := raylib.WHITE
+		if i == gs.menu_selected {
+			color = raylib.YELLOW
+		}
+		raylib.DrawText(item, ix, iy, MAIN_MENU_ITEM_SIZE, color)
+		if i == gs.menu_selected {
+			raylib.DrawText(">", ix - 14, iy, MAIN_MENU_ITEM_SIZE, raylib.YELLOW)
+		}
+	}
+
+	hint: cstring = "Esc/B to go back"
+	hw := raylib.MeasureText(hint, 8)
+	raylib.DrawText(hint, SCREEN_WIDTH/2 - hw/2, SCREEN_HEIGHT - 20, 8, raylib.LIGHTGRAY)
 }
