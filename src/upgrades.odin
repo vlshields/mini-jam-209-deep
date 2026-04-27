@@ -120,10 +120,10 @@ weapon_title :: proc(k: Weapon_Kind) -> string {
 
 weapon_desc :: proc(k: Weapon_Kind) -> string {
 	switch k {
-	case .Double_Strike: return "Combo finisher: 13% chance for 2x damage"
-	case .Waveblade:     return "Replaces melee. 30 dmg, 4% crit, 10 stamina"
-	case .Orb:           return "Replaces projectile. 40 dmg, 20% slow on hit"
-	case .Giant_Whale:   return "Replaces special. 55 stam: AOE kill + block. Caps non-stamina stats"
+	case .Double_Strike: return "Your final attack has\na 13% chance to land twice"
+	case .Waveblade:     return "You attack with a spinning\nwater-blade that deals\n30 base dmg"
+	case .Orb:           return "Your special is a giant\norb that deals 40 base dmg,\nand has a chance to apply slow"
+	case .Giant_Whale:   return "Your special summons a giant whale.\nYou are not sure how to wield\nthis power."
 	}
 	return ""
 }

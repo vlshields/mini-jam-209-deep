@@ -935,7 +935,8 @@ update_whale :: proc(p: ^Player, dt: f32) {
 			p.whale_state = .Attacking
 			p.whale_frame = 0
 			p.whale_anim_timer = 0
-			p.whale_pos = {p.pos.x, p.pos.y - f32(SPRITE_DST_SIZE) / 2}
+			whale_offset_x: f32 = p.facing_left ? -f32(TILE_SIZE) : f32(TILE_SIZE)
+			p.whale_pos = {p.pos.x + whale_offset_x, p.pos.y - f32(SPRITE_DST_SIZE) / 2}
 			p.whale_damage_active = true
 			play_sound(.Water_Orb_Attack)
 		}
@@ -980,11 +981,12 @@ draw_whale :: proc(p: ^Player) {
 		p.facing_left ? -f32(WHALE_SRC_SIZE) : f32(WHALE_SRC_SIZE),
 		f32(WHALE_SRC_SIZE),
 	}
+	draw_size := f32(WHALE_SRC_SIZE) * 2
 	dst := raylib.Rectangle{
-		p.whale_pos.x - f32(WHALE_SRC_SIZE) / 2,
-		p.whale_pos.y - f32(WHALE_SRC_SIZE) / 2,
-		f32(WHALE_SRC_SIZE),
-		f32(WHALE_SRC_SIZE),
+		p.whale_pos.x - draw_size / 2,
+		p.whale_pos.y - draw_size / 2,
+		draw_size,
+		draw_size,
 	}
 	raylib.DrawTexturePro(p.whale_tex, src, dst, {0, 0}, 0, raylib.WHITE)
 }

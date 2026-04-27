@@ -23,15 +23,17 @@ Pause_Screen :: enum {
 	Main,
 	Controls,
 	Options,
+	Hints,
 }
 
-PAUSE_MAIN_ITEM_COUNT :: 4
+PAUSE_MAIN_ITEM_COUNT :: 5
 
 Main_Menu_Screen :: enum {
 	Main,
 	Options,
 	Controls,
 	Audio,
+	Hints,
 }
 
 Game_State :: struct {
@@ -70,6 +72,12 @@ Game_State :: struct {
 	main_menu_items_x:  f32,
 	main_menu_idle_frame: int,
 	main_menu_idle_timer: f32,
+	hint_active:        bool,
+	hint_current:       Hint_Kind,
+	hint_display_timer: f32,
+	hint_play_time:     f32,
+	hint_auto_shown:    [Hint_Kind]bool,
+	hint_view_idx:      int,
 }
 
 @(private = "file")
@@ -344,6 +352,7 @@ update :: proc() {
 		gs.menu = .Paused
 		gs.pause_screen = .Main
 		gs.menu_selected = 0
+		gs.hint_active = false
 		play_sound(.UI_Confirm)
 	} else if gs.menu == .Paused && input_menu_back() {
 		handle_pause_back()
@@ -365,6 +374,7 @@ update :: proc() {
 		update_main_menu(dt)
 
 	case .Playing:
+		update_hints(dt)
 		prev_dash_impact := gs.player.dash_impact_active
 		prev_hp := gs.player.hp
 		update_player(&gs.player, &gs.map_data, dt)
@@ -437,6 +447,7 @@ update :: proc() {
 		raylib.EndMode2D()
 
 		draw_hud()
+		draw_hint_popup()
 		draw_choose_prompt()
 		draw_menu_overlay()
 	}
@@ -484,6 +495,7 @@ shutdown :: proc() {
 enter_game_over :: proc() {
 	gs.menu = .Game_Over
 	gs.game_over_timer = 0
+	gs.hint_active = false
 	play_sound(.You_Died)
 	if gs.combat_music_loaded {
 		raylib.StopMusicStream(gs.combat_music)
@@ -542,6 +554,9 @@ restart_run :: proc() {
 	gs.weapons_available[.Giant_Whale] = true
 	gs.menu = .Playing
 	gs.game_over_timer = 0
+	gs.hint_active = false
+	gs.hint_play_time = 0
+	gs.hint_auto_shown = {}
 	if gs.combat_music_loaded {
 		raylib.PlayMusicStream(gs.combat_music)
 	}
@@ -859,7 +874,7 @@ handle_pause_back :: proc() {
 	case .Main:
 		gs.menu = .Playing
 		play_sound(.UI_Negative_Back)
-	case .Controls, .Options:
+	case .Controls, .Options, .Hints:
 		gs.pause_screen = .Main
 		gs.menu_selected = 0
 		play_sound(.UI_Negative_Back)
@@ -875,6 +890,8 @@ update_pause_menu :: proc() {
 		// no-op, only ESC/Start to back out
 	case .Options:
 		update_pause_options()
+	case .Hints:
+		update_hints_menu()
 	}
 }
 
@@ -907,6 +924,10 @@ update_pause_main :: proc() {
 		gs.menu_selected = 0
 		play_sound(.UI_Confirm)
 	case 3:
+		gs.pause_screen = .Hints
+		gs.hint_view_idx = 0
+		play_sound(.UI_Confirm)
+	case 4:
 		when ODIN_ARCH != .wasm32 && ODIN_ARCH != .wasm64p32 {
 			gs.should_quit = true
 			play_sound(.UI_Negative_Back)
@@ -955,9 +976,13 @@ draw_pause_overlay :: proc() {
 		draw_pause_controls()
 	case .Options:
 		draw_pause_options()
+	case .Hints:
+		draw_hints_panel()
 	}
 
-	draw_player_stats_panel()
+	if gs.pause_screen != .Hints {
+		draw_player_stats_panel()
+	}
 }
 
 @(private = "file")
@@ -966,7 +991,7 @@ draw_pause_main :: proc() {
 	tw := raylib.MeasureText(title, 20)
 	raylib.DrawText(title, SCREEN_WIDTH/2 - tw/2, 18, 20, raylib.WHITE)
 
-	items := [PAUSE_MAIN_ITEM_COUNT]cstring{"Resume", "Controls", "Options", "Quit"}
+	items := [PAUSE_MAIN_ITEM_COUNT]cstring{"Resume", "Controls", "Options", "Hints", "Quit"}
 	for i in 0 ..< PAUSE_MAIN_ITEM_COUNT {
 		item := items[i]
 		color := raylib.WHITE
@@ -974,7 +999,7 @@ draw_pause_main :: proc() {
 			color = raylib.YELLOW
 		}
 		when ODIN_ARCH == .wasm32 || ODIN_ARCH == .wasm64p32 {
-			if i == 3 {
+			if i == 4 {
 				dimmed := color
 				dimmed.r /= 2
 				dimmed.g /= 2
@@ -992,7 +1017,7 @@ draw_pause_main :: proc() {
 
 	hint: cstring = "Up/Down + Confirm   |   Esc/B to resume"
 	hw := raylib.MeasureText(hint, 8)
-	raylib.DrawText(hint, SCREEN_WIDTH/2 - hw/2, 160, 8, raylib.LIGHTGRAY)
+	raylib.DrawText(hint, SCREEN_WIDTH/2 - hw/2, 180, 8, raylib.LIGHTGRAY)
 }
 
 @(private = "file")
@@ -1219,6 +1244,8 @@ update_main_menu :: proc(dt: f32) {
 		// only ESC/Start to back out
 	case .Audio:
 		update_pause_options()
+	case .Hints:
+		update_hints_menu()
 	}
 }
 
@@ -1280,6 +1307,10 @@ update_main_menu_options :: proc() {
 	case 1:
 		gs.main_menu_screen = .Controls
 		play_sound(.UI_Confirm)
+	case 2:
+		gs.main_menu_screen = .Hints
+		gs.hint_view_idx = 0
+		play_sound(.UI_Confirm)
 	}
 }
 
@@ -1292,7 +1323,7 @@ handle_main_menu_back :: proc() {
 		gs.main_menu_screen = .Main
 		gs.menu_selected = 1
 		play_sound(.UI_Negative_Back)
-	case .Controls, .Audio:
+	case .Controls, .Audio, .Hints:
 		gs.main_menu_screen = .Options
 		gs.menu_selected = 0
 		play_sound(.UI_Negative_Back)
@@ -1317,6 +1348,9 @@ draw_main_menu :: proc() {
 	case .Audio:
 		raylib.DrawRectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, raylib.Color{0, 0, 0, 200})
 		draw_pause_options()
+	case .Hints:
+		raylib.DrawRectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, raylib.Color{0, 0, 0, 200})
+		draw_hints_panel()
 	}
 }
 
@@ -1413,7 +1447,7 @@ draw_main_menu_options_panel :: proc() {
 	tw := raylib.MeasureText(title, 20)
 	raylib.DrawText(title, SCREEN_WIDTH/2 - tw/2, 18, 20, raylib.WHITE)
 
-	items := [MAIN_MENU_OPTIONS_ITEM_COUNT]cstring{"AUDIO", "CONTROLS"}
+	items := [MAIN_MENU_OPTIONS_ITEM_COUNT]cstring{"AUDIO", "CONTROLS", "HINTS"}
 
 	for item, i in items {
 		iw := raylib.MeasureText(item, MAIN_MENU_ITEM_SIZE)
@@ -1432,4 +1466,131 @@ draw_main_menu_options_panel :: proc() {
 	hint: cstring = "Esc/B to go back"
 	hw := raylib.MeasureText(hint, 8)
 	raylib.DrawText(hint, SCREEN_WIDTH/2 - hw/2, SCREEN_HEIGHT - 20, 8, raylib.LIGHTGRAY)
+}
+
+@(private = "file")
+update_hints :: proc(dt: f32) {
+	if gs.wave <= 2 && !gs.hint_active {
+		gs.hint_play_time += dt
+		for kind in Hint_Kind {
+			if gs.hint_auto_shown[kind] {
+				continue
+			}
+			if gs.hint_play_time >= HINT_TRIGGER_TIME[kind] {
+				gs.hint_active = true
+				gs.hint_current = kind
+				gs.hint_display_timer = 0
+				gs.hint_auto_shown[kind] = true
+				play_sound(.UI_Confirm)
+				break
+			}
+		}
+	}
+
+	if !gs.hint_active {
+		return
+	}
+	if input_hint_dismiss() {
+		gs.hint_active = false
+		play_sound(.UI_Negative_Back)
+		return
+	}
+	gs.hint_display_timer += dt
+	if gs.hint_display_timer >= HINT_AUTOCLOSE_DURATION {
+		gs.hint_active = false
+	}
+}
+
+@(private = "file")
+update_hints_menu :: proc() {
+	if input_menu_left() {
+		gs.hint_view_idx -= 1
+		if gs.hint_view_idx < 0 {
+			gs.hint_view_idx = HINT_COUNT - 1
+		}
+		play_sound(.UI_Confirm)
+	}
+	if input_menu_right() {
+		gs.hint_view_idx += 1
+		if gs.hint_view_idx >= HINT_COUNT {
+			gs.hint_view_idx = 0
+		}
+		play_sound(.UI_Confirm)
+	}
+}
+
+@(private = "file")
+draw_hint_popup :: proc() {
+	if !gs.hint_active {
+		return
+	}
+
+	kind := gs.hint_current
+	title := HINT_TITLES[kind]
+	body  := HINT_BODIES[kind]
+
+	box_w: i32 = 360
+	box_h: i32 = 64
+	box_x: i32 = SCREEN_WIDTH/2 - box_w/2
+	box_y: i32 = 6
+
+	raylib.DrawRectangle(box_x, box_y, box_w, box_h, raylib.Color{0x10, 0x10, 0x28, 230})
+	raylib.DrawRectangleLines(box_x, box_y, box_w, box_h, raylib.Color{0xFF, 0xE5, 0x99, 0xFF})
+
+	tw := raylib.MeasureText(title, 10)
+	raylib.DrawText(title, SCREEN_WIDTH/2 - tw/2, box_y + 4, 10, raylib.YELLOW)
+
+	line_y := box_y + 18
+	for line in body {
+		if line == "" {
+			continue
+		}
+		lw := raylib.MeasureText(line, 8)
+		raylib.DrawText(line, SCREEN_WIDTH/2 - lw/2, line_y, 8, raylib.WHITE)
+		line_y += 10
+	}
+
+	dismiss: cstring = gamepad_active() ? "Back to dismiss" : "Press C to dismiss"
+	dw := raylib.MeasureText(dismiss, 8)
+	raylib.DrawText(dismiss, SCREEN_WIDTH/2 - dw/2, box_y + box_h - 11, 8, raylib.LIGHTGRAY)
+}
+
+@(private = "file")
+draw_hints_panel :: proc() {
+	title: cstring = "HINTS"
+	tw := raylib.MeasureText(title, 20)
+	raylib.DrawText(title, SCREEN_WIDTH/2 - tw/2, 18, 20, raylib.WHITE)
+
+	idx := gs.hint_view_idx
+	if idx < 0 || idx >= HINT_COUNT {
+		idx = 0
+	}
+	kind := Hint_Kind(idx)
+
+	page := fmt.ctprintf("%d / %d", idx + 1, HINT_COUNT)
+	pw := raylib.MeasureText(page, 8)
+	raylib.DrawText(page, SCREEN_WIDTH/2 - pw/2, 46, 8, raylib.LIGHTGRAY)
+
+	htitle := HINT_TITLES[kind]
+	htw := raylib.MeasureText(htitle, 16)
+	raylib.DrawText(htitle, SCREEN_WIDTH/2 - htw/2, 84, 16, raylib.YELLOW)
+
+	body := HINT_BODIES[kind]
+	line_y: i32 = 130
+	for line in body {
+		if line == "" {
+			continue
+		}
+		lw := raylib.MeasureText(line, 12)
+		raylib.DrawText(line, SCREEN_WIDTH/2 - lw/2, line_y, 12, raylib.WHITE)
+		line_y += 18
+	}
+
+	arrow_y: i32 = 124
+	raylib.DrawText("<", 80, arrow_y, 24, raylib.YELLOW)
+	raylib.DrawText(">", SCREEN_WIDTH - 96, arrow_y, 24, raylib.YELLOW)
+
+	hint: cstring = "Left/Right to browse  |  Esc/B to go back"
+	hw := raylib.MeasureText(hint, 8)
+	raylib.DrawText(hint, SCREEN_WIDTH/2 - hw/2, SCREEN_HEIGHT - 24, 8, raylib.LIGHTGRAY)
 }
