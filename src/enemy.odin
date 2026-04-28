@@ -32,6 +32,7 @@ Sludge :: struct {
 	slow_timer:             f32,
 	last_projectile_hit_id: u32,
 	last_orb_hit_id:        u32,
+	last_twister_hit_id:    u32,
 }
 
 Sludge_Pool :: struct {
@@ -336,15 +337,26 @@ update_sludges :: proc(
 			}
 		}
 
-		// Giant whale — instakill any foe in its hitbox
-		if s.state != .Dying && s.state != .Dead && p.whale_damage_active {
-			if raylib.CheckCollisionRecs(get_whale_rect(p), get_sludge_hitbox(s)) {
-				s.hp = 0
-				s.state = .Dying
-				s.death_timer = SLUDGE_DEATH_DURATION
-				s.vel.x = 0
-				s.current_frame = 0
-				s.anim_timer = 0
+		// Water twister — pierces foes, +18% damage on backstab. At most one hit per throw per foe.
+		if s.state != .Dying && s.state != .Dead &&
+		   p.twister_state != .Inactive &&
+		   s.last_twister_hit_id != p.twister_attack_id {
+			if raylib.CheckCollisionRecs(get_twister_rect(p), get_sludge_hitbox(s)) {
+				is_backstab := s.facing_left == (p.twister_pos.x > s.pos.x)
+				dmg := compute_player_damage(p, TWISTER_DAMAGE)
+				if is_backstab {
+					dmg *= 1 + TWISTER_BACKSTAB_BONUS
+				}
+				s.hp -= dmg
+				s.damage_flash_timer = DAMAGE_FLASH_DURATION
+				s.last_twister_hit_id = p.twister_attack_id
+				if s.hp <= 0 {
+					s.state = .Dying
+					s.death_timer = SLUDGE_DEATH_DURATION
+					s.vel.x = 0
+					s.current_frame = 0
+					s.anim_timer = 0
+				}
 			}
 		}
 

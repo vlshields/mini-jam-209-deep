@@ -24,7 +24,7 @@ Weapon_Kind :: enum {
 	Double_Strike,
 	Waveblade,
 	Orb,
-	Giant_Whale,
+	Water_Twister,
 }
 
 WEAPON_COUNT :: len(Weapon_Kind)
@@ -113,7 +113,7 @@ weapon_title :: proc(k: Weapon_Kind) -> string {
 	case .Double_Strike: return "Double Strike"
 	case .Waveblade:     return "Waveblade"
 	case .Orb:           return "Orb"
-	case .Giant_Whale:   return "Giant Whale"
+	case .Water_Twister: return "Water Twister"
 	}
 	return ""
 }
@@ -123,13 +123,13 @@ weapon_desc :: proc(k: Weapon_Kind) -> string {
 	case .Double_Strike: return "Your final attack has\na 13% chance to land twice"
 	case .Waveblade:     return "You attack with a spinning\nwater-blade that deals\n30 base dmg"
 	case .Orb:           return "Your special is a giant\norb that deals 40 base dmg,\nand has a chance to apply slow"
-	case .Giant_Whale:   return "Your special summons a giant whale.\nYou are not sure how to wield\nthis power."
+	case .Water_Twister: return "Your special is a deadly twister\ndealing 20 base dmg and +18%\nbackstab dmg. Press again to recall."
 	}
 	return ""
 }
 
 sample_weapon_choices :: proc(available: [Weapon_Kind]bool) -> (choices: [3]Weapon_Kind, count: int) {
-	all_weapons := [WEAPON_COUNT]Weapon_Kind{.Double_Strike, .Waveblade, .Orb, .Giant_Whale}
+	all_weapons := [WEAPON_COUNT]Weapon_Kind{.Double_Strike, .Waveblade, .Orb, .Water_Twister}
 	pool: [WEAPON_COUNT]Weapon_Kind
 	n := 0
 	for k in all_weapons {
@@ -164,12 +164,11 @@ apply_weapon_upgrade :: proc(p: ^Player, k: Weapon_Kind) {
 	case .Orb:
 		p.y_weapon = .Orb
 		p.orb_state = .Inactive
-	case .Giant_Whale:
-		p.y_weapon = .Giant_Whale
-		p.whale_state = .Idle
-		p.whale_frame = 0
-		p.whale_anim_timer = 0
-		p.stats_capped = true
+	case .Water_Twister:
+		p.y_weapon = .Water_Twister
+		p.twister_state = .Inactive
+		p.twister_frame = 0
+		p.twister_anim_timer = 0
 	}
 }
 

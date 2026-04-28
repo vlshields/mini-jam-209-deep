@@ -32,7 +32,7 @@ X_Weapon :: enum {
 Y_Weapon :: enum {
 	Boomerang,
 	Orb,
-	Giant_Whale,
+	Water_Twister,
 }
 
 Waveblade_State :: enum {
@@ -46,9 +46,11 @@ Orb_State :: enum {
 	Flying,
 }
 
-Whale_State :: enum {
-	Idle,
-	Attacking,
+Twister_State :: enum {
+	Inactive,
+	Outgoing,
+	Stalled,
+	Returning,
 }
 
 Projectile :: struct {
@@ -147,15 +149,19 @@ Player :: struct {
 	orb_anim_timer:     f32,
 	orb_flight_timer:   f32,
 	orb_attack_id:      u32,
-	// Giant Whale (Y replacement)
-	whale_tex:           raylib.Texture2D,
-	whale_frames:        int,
-	whale_state:         Whale_State,
-	whale_frame:         f32,
-	whale_anim_timer:    f32,
-	whale_pos:           raylib.Vector2,
-	whale_damage_active: bool,
-	stats_capped:        bool,
+	// Water Twister (Y replacement)
+	twister_tex:          raylib.Texture2D,
+	twister_frames:       int,
+	twister_state:        Twister_State,
+	twister_pos:          raylib.Vector2,
+	twister_origin:       raylib.Vector2,
+	twister_apex_x:       f32,
+	twister_travel_timer: f32,
+	twister_moving_left:  bool,
+	twister_attack_id:    u32,
+	twister_frame:        f32,
+	twister_anim_timer:   f32,
+	stats_capped:         bool,
 }
 
 init_player :: proc(p: ^Player, spawn: raylib.Vector2) {
@@ -197,7 +203,7 @@ init_player :: proc(p: ^Player, spawn: raylib.Vector2) {
 	p.orb_spawn_tex = raylib.LoadTexture("assets/sprites/player_waterorb_spawn.png")
 	p.orb_idle_tex = raylib.LoadTexture("assets/sprites/player_waterorb_idle.png")
 	p.orb_attack_tex = raylib.LoadTexture("assets/sprites/player_waterorb_attack.png")
-	p.whale_tex = raylib.LoadTexture("assets/sprites/player_giant_whale_attack.png")
+	p.twister_tex = raylib.LoadTexture("assets/sprites/player_water_twister_attack.png")
 
 	p.idle_frames = int(p.idle_tex.width) / SPRITE_SRC_SIZE
 	p.move_frames = int(p.move_tex.width) / SPRITE_SRC_SIZE
@@ -211,12 +217,12 @@ init_player :: proc(p: ^Player, spawn: raylib.Vector2) {
 	p.orb_spawn_frames = int(p.orb_spawn_tex.width) / WATERORB_SRC_SIZE
 	p.orb_idle_frames = int(p.orb_idle_tex.width) / WATERORB_SRC_SIZE
 	p.orb_attack_frames = int(p.orb_attack_tex.width) / WATERORB_SRC_SIZE
-	p.whale_frames = int(p.whale_tex.width) / WHALE_SRC_SIZE
+	p.twister_frames = int(p.twister_tex.width) / TWISTER_SRC_SIZE
 	p.x_weapon = .Base_Combo
 	p.y_weapon = .Boomerang
 	p.waveblade_state = .Idle
 	p.orb_state = .Inactive
-	p.whale_state = .Idle
+	p.twister_state = .Inactive
 	p.stats_capped = false
 
 	p.projectile.out_tex = raylib.LoadTexture("assets/sprites/player_basic_projectile.png")
@@ -260,8 +266,7 @@ reset_player_run_state :: proc(p: ^Player, spawn: raylib.Vector2) {
 	p.waveblade_state = .Idle
 	p.waveblade_damage_active = false
 	p.orb_state = .Inactive
-	p.whale_state = .Idle
-	p.whale_damage_active = false
+	p.twister_state = .Inactive
 	p.stats_capped = false
 	p.projectile.state = .Inactive
 	p.particles = {}
@@ -281,7 +286,7 @@ unload_player :: proc(p: ^Player) {
 	raylib.UnloadTexture(p.orb_spawn_tex)
 	raylib.UnloadTexture(p.orb_idle_tex)
 	raylib.UnloadTexture(p.orb_attack_tex)
-	raylib.UnloadTexture(p.whale_tex)
+	raylib.UnloadTexture(p.twister_tex)
 	raylib.UnloadTexture(p.projectile.out_tex)
 	raylib.UnloadTexture(p.projectile.return_tex)
 }
@@ -326,7 +331,7 @@ update_player :: proc(p: ^Player, map_data: ^dm.Dot_Map, dt: f32) {
 
 	update_waveblade(p, dt)
 	update_orb(p, dt)
-	update_whale(p, dt)
+	update_twister(p, dt)
 
 	if p.y_weapon == .Boomerang &&
 	   p.projectile.state == .Inactive && !p.dashing && input_projectile() {
@@ -866,7 +871,8 @@ update_orb :: proc(p: ^Player, dt: f32) {
 		if !p.dashing && input_projectile() {
 			p.orb_state = .Spawning
 			p.orb_facing_left = p.facing_left
-			p.orb_pos = {p.pos.x, p.pos.y - f32(PLAYER_HITBOX_H) / 2}
+			offset_x: f32 = p.orb_facing_left ? -f32(TILE_SIZE) : f32(TILE_SIZE)
+			p.orb_pos = {p.pos.x + offset_x, p.pos.y}
 			p.orb_frame = 0
 			p.orb_anim_timer = 0
 			p.orb_attack_id += 1
@@ -874,7 +880,8 @@ update_orb :: proc(p: ^Player, dt: f32) {
 		}
 
 	case .Spawning:
-		p.orb_pos = {p.pos.x, p.pos.y - f32(PLAYER_HITBOX_H) / 2}
+		offset_x: f32 = p.orb_facing_left ? -f32(TILE_SIZE) : f32(TILE_SIZE)
+		p.orb_pos = {p.pos.x + offset_x, p.pos.y}
 		frame_dur: f32 = 1.0 / WATERORB_SPAWN_FPS
 		p.orb_anim_timer += dt
 		if p.orb_anim_timer >= frame_dur {
@@ -890,8 +897,6 @@ update_orb :: proc(p: ^Player, dt: f32) {
 		}
 
 	case .Flying:
-		dir: f32 = p.orb_facing_left ? -1.0 : 1.0
-		p.orb_pos.x += dir * WATERORB_SPEED * dt
 		p.orb_flight_timer -= dt
 
 		frame_dur: f32 = 1.0 / WATERORB_ATTACK_FPS
@@ -913,82 +918,113 @@ update_orb :: proc(p: ^Player, dt: f32) {
 get_orb_rect :: proc(p: ^Player) -> raylib.Rectangle {
 	return {
 		p.orb_pos.x - f32(WATERORB_SRC_SIZE) / 2,
-		p.orb_pos.y - f32(WATERORB_SRC_SIZE) / 2,
+		p.orb_pos.y - f32(WATERORB_SRC_SIZE),
 		f32(WATERORB_SRC_SIZE),
 		f32(WATERORB_SRC_SIZE),
 	}
 }
 
-update_whale :: proc(p: ^Player, dt: f32) {
-	if p.y_weapon != .Giant_Whale {
-		p.whale_state = .Idle
-		p.whale_damage_active = false
+update_twister :: proc(p: ^Player, dt: f32) {
+	if p.y_weapon != .Water_Twister {
+		p.twister_state = .Inactive
 		return
 	}
 
-	p.whale_damage_active = false
+	advance_twister_anim :: proc(p: ^Player, dt: f32) {
+		if p.twister_frames <= 1 {
+			return
+		}
+		frame_dur: f32 = 1.0 / TWISTER_ANIM_FPS
+		p.twister_anim_timer += dt
+		if p.twister_anim_timer >= frame_dur {
+			p.twister_anim_timer -= frame_dur
+			p.twister_frame += 1
+			if int(p.twister_frame) >= p.twister_frames {
+				p.twister_frame = 0
+			}
+		}
+	}
 
-	switch p.whale_state {
-	case .Idle:
-		if !p.dashing && p.stamina >= WHALE_STAMINA_COST && input_projectile() {
-			p.stamina -= WHALE_STAMINA_COST
-			p.whale_state = .Attacking
-			p.whale_frame = 0
-			p.whale_anim_timer = 0
-			whale_offset_x: f32 = p.facing_left ? -f32(TILE_SIZE) : f32(TILE_SIZE)
-			p.whale_pos = {p.pos.x + whale_offset_x, p.pos.y - f32(SPRITE_DST_SIZE) / 2}
-			p.whale_damage_active = true
+	switch p.twister_state {
+	case .Inactive:
+		if !p.dashing && p.on_ground && input_projectile() {
+			p.twister_state = .Outgoing
+			p.twister_moving_left = p.facing_left
+			p.twister_pos = {p.pos.x, p.pos.y}
+			p.twister_origin = p.twister_pos
+			dir: f32 = p.facing_left ? -1.0 : 1.0
+			p.twister_apex_x = p.twister_origin.x + TWISTER_RANGE * dir
+			p.twister_travel_timer = 0
+			p.twister_frame = 0
+			p.twister_anim_timer = 0
+			p.twister_attack_id += 1
 			play_sound(.Water_Orb_Attack)
 		}
 
-	case .Attacking:
-		fps := WHALE_FPS * (1 + p.attack_speed_multiplier)
-		frame_dur: f32 = 1.0 / fps
-		p.whale_anim_timer += dt
-		if p.whale_anim_timer >= frame_dur {
-			p.whale_anim_timer -= frame_dur
-			p.whale_frame += 1
+	case .Outgoing:
+		p.twister_travel_timer += dt
+		t := p.twister_travel_timer / TWISTER_OUT_DURATION
+		eased := ease_out_cubic(t)
+		p.twister_pos.x = p.twister_origin.x + (p.twister_apex_x - p.twister_origin.x) * eased
+		if p.twister_travel_timer >= TWISTER_OUT_DURATION {
+			p.twister_pos.x = p.twister_apex_x
+			p.twister_state = .Stalled
 		}
-		if int(p.whale_frame) >= p.whale_frames {
-			p.whale_state = .Idle
-			p.whale_frame = 0
-			p.whale_anim_timer = 0
-		} else {
-			p.whale_damage_active = true
+		advance_twister_anim(p, dt)
+
+	case .Stalled:
+		if input_projectile() {
+			p.twister_state = .Returning
+			p.twister_travel_timer = 0
 		}
+		advance_twister_anim(p, dt)
+
+	case .Returning:
+		target := raylib.Vector2{p.pos.x, p.pos.y}
+		diff := target - p.twister_pos
+		dist := raylib.Vector2Length(diff)
+		if dist <= TWISTER_RETURN_STOP_DIST {
+			p.twister_state = .Inactive
+			return
+		}
+		p.twister_travel_timer += dt
+		speed := TWISTER_RETURN_MAX_SPEED * ease_in_cubic(p.twister_travel_timer / TWISTER_RETURN_ACCEL)
+		dir := diff / dist
+		p.twister_pos += dir * speed * dt
+		p.twister_moving_left = dir.x < 0
+		advance_twister_anim(p, dt)
 	}
 }
 
-get_whale_rect :: proc(p: ^Player) -> raylib.Rectangle {
+get_twister_rect :: proc(p: ^Player) -> raylib.Rectangle {
 	return {
-		p.whale_pos.x - f32(WHALE_HITBOX_SIZE) / 2,
-		p.whale_pos.y - f32(WHALE_HITBOX_SIZE) / 2,
-		f32(WHALE_HITBOX_SIZE),
-		f32(WHALE_HITBOX_SIZE),
+		p.twister_pos.x - f32(TWISTER_SRC_SIZE) / 2,
+		p.twister_pos.y - f32(TWISTER_SRC_SIZE),
+		f32(TWISTER_SRC_SIZE),
+		f32(TWISTER_SRC_SIZE),
 	}
 }
 
-draw_whale :: proc(p: ^Player) {
-	if p.y_weapon != .Giant_Whale || p.whale_state != .Attacking {
+draw_twister :: proc(p: ^Player) {
+	if p.y_weapon != .Water_Twister || p.twister_state == .Inactive {
 		return
 	}
-	frame := int(p.whale_frame)
-	if frame >= p.whale_frames {
-		frame = p.whale_frames - 1
+	frame := int(p.twister_frame)
+	if frame >= p.twister_frames {
+		frame = p.twister_frames - 1
 	}
 	src := raylib.Rectangle{
-		f32(frame * WHALE_SRC_SIZE), 0,
-		p.facing_left ? -f32(WHALE_SRC_SIZE) : f32(WHALE_SRC_SIZE),
-		f32(WHALE_SRC_SIZE),
+		f32(frame * TWISTER_SRC_SIZE), 0,
+		p.twister_moving_left ? -f32(TWISTER_SRC_SIZE) : f32(TWISTER_SRC_SIZE),
+		f32(TWISTER_SRC_SIZE),
 	}
-	draw_size := f32(WHALE_SRC_SIZE) * 2
 	dst := raylib.Rectangle{
-		p.whale_pos.x - draw_size / 2,
-		p.whale_pos.y - draw_size / 2,
-		draw_size,
-		draw_size,
+		p.twister_pos.x - f32(TWISTER_SRC_SIZE) / 2,
+		p.twister_pos.y - f32(TWISTER_SRC_SIZE),
+		f32(TWISTER_SRC_SIZE),
+		f32(TWISTER_SRC_SIZE),
 	}
-	raylib.DrawTexturePro(p.whale_tex, src, dst, {0, 0}, 0, raylib.WHITE)
+	raylib.DrawTexturePro(p.twister_tex, src, dst, {0, 0}, 0, raylib.WHITE)
 }
 
 draw_orb :: proc(p: ^Player) {
@@ -1020,7 +1056,7 @@ draw_orb :: proc(p: ^Player) {
 	}
 	dst := raylib.Rectangle{
 		p.orb_pos.x - f32(WATERORB_SRC_SIZE) / 2,
-		p.orb_pos.y - f32(WATERORB_SRC_SIZE) / 2,
+		p.orb_pos.y - f32(WATERORB_SRC_SIZE),
 		f32(WATERORB_SRC_SIZE),
 		f32(WATERORB_SRC_SIZE),
 	}

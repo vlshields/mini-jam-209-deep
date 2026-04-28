@@ -311,7 +311,7 @@ init :: proc() {
 	gs.weapons_available[.Double_Strike] = true
 	gs.weapons_available[.Waveblade] = true
 	gs.weapons_available[.Orb] = true
-	gs.weapons_available[.Giant_Whale] = true
+	gs.weapons_available[.Water_Twister] = true
 }
 
 compute_wave_sludge_target :: proc(wave: int) -> int {
@@ -443,7 +443,7 @@ update :: proc() {
 		draw_dash_impact(&gs.player)
 		draw_projectile(&gs.player)
 		draw_orb(&gs.player)
-		draw_whale(&gs.player)
+		draw_twister(&gs.player)
 		raylib.EndMode2D()
 
 		draw_hud()
@@ -551,7 +551,7 @@ restart_run :: proc() {
 	gs.weapons_available[.Double_Strike] = true
 	gs.weapons_available[.Waveblade] = true
 	gs.weapons_available[.Orb] = true
-	gs.weapons_available[.Giant_Whale] = true
+	gs.weapons_available[.Water_Twister] = true
 	gs.menu = .Playing
 	gs.game_over_timer = 0
 	gs.hint_active = false

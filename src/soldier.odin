@@ -49,6 +49,7 @@ Sludge_Soldier :: struct {
 	fired_this_attack:  bool,
 	last_projectile_hit_id: u32,
 	last_orb_hit_id:    u32,
+	last_twister_hit_id: u32,
 	projectile:         Soldier_Projectile,
 }
 
@@ -381,11 +382,22 @@ update_soldiers :: proc(
 			}
 		}
 
-		// Giant whale — instakill any foe in its hitbox
-		if s.state != .Dying && s.state != .Dead && p.whale_damage_active {
-			if raylib.CheckCollisionRecs(get_whale_rect(p), get_soldier_hitbox(s)) {
-				s.hp = 0
-				soldier_enter_dying(s)
+		// Water twister — pierces foes, +18% damage on backstab. At most one hit per throw per foe.
+		if s.state != .Dying && s.state != .Dead &&
+		   p.twister_state != .Inactive &&
+		   s.last_twister_hit_id != p.twister_attack_id {
+			if raylib.CheckCollisionRecs(get_twister_rect(p), get_soldier_hitbox(s)) {
+				is_backstab := s.facing_left == (p.twister_pos.x > s.pos.x)
+				dmg := compute_player_damage(p, TWISTER_DAMAGE)
+				if is_backstab {
+					dmg *= 1 + TWISTER_BACKSTAB_BONUS
+				}
+				s.hp -= dmg
+				s.damage_flash_timer = DAMAGE_FLASH_DURATION
+				s.last_twister_hit_id = p.twister_attack_id
+				if s.hp <= 0 {
+					soldier_enter_dying(s)
+				}
 			}
 		}
 
@@ -535,11 +547,6 @@ update_soldier_projectile :: proc(
 	}
 
 	if pr.travelled >= SOLDIER_PROJECTILE_MAX_DIST {
-		pr.state = .Inactive
-		return
-	}
-
-	if p.whale_damage_active && raylib.CheckCollisionRecs(rect, get_whale_rect(p)) {
 		pr.state = .Inactive
 		return
 	}
