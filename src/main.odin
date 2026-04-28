@@ -43,6 +43,7 @@ Game_State :: struct {
 	player:             Player,
 	sludges:            Sludge_Pool,
 	soldiers:           Soldier_Pool,
+	sludgeclops:        Sludgeclops_Pool,
 	wave:               int,
 	spawn_pos:          raylib.Vector2,
 	render_target:      raylib.RenderTexture2D,
@@ -294,9 +295,16 @@ init :: proc() {
 		register_soldier_slot(&gs.soldiers, pos)
 	}
 
+	init_sludgeclops(&gs.sludgeclops)
+	sludgeclops_positions := collect_bottom_platform_spawns(MAX_SLUDGECLOPS_SLOTS)
+	for pos in sludgeclops_positions {
+		register_sludgeclops_slot(&gs.sludgeclops, pos)
+	}
+
 	gs.wave = 1
 	reset_sludges(&gs.sludges, compute_wave_sludge_target(gs.wave))
 	reset_soldiers(&gs.soldiers)
+	reset_sludgeclops(&gs.sludgeclops)
 
 	gs.camera = raylib.Camera2D{
 		zoom   = 2,
@@ -333,6 +341,13 @@ count_remaining_enemies :: proc() -> int {
 	if gs.wave >= SOLDIER_WAVE_THRESHOLD {
 		for i := 0; i < gs.soldiers.count; i += 1 {
 			if gs.soldiers.slots[i].state != .Dead {
+				n += 1
+			}
+		}
+	}
+	if gs.wave >= SLUDGECLOPS_WAVE_THRESHOLD {
+		for i := 0; i < gs.sludgeclops.count; i += 1 {
+			if gs.sludgeclops.slots[i].state != .Dead {
 				n += 1
 			}
 		}
@@ -389,6 +404,8 @@ update :: proc() {
 		update_sludges(&gs.sludges, &gs.player, &gs.camera, &gs.map_data, dt)
 		update_soldiers(&gs.soldiers, &gs.player, &gs.camera, &gs.map_data, dt,
 			gs.wave >= SOLDIER_WAVE_THRESHOLD)
+		update_sludgeclops(&gs.sludgeclops, &gs.player, &gs.camera, &gs.map_data, dt,
+			gs.wave >= SLUDGECLOPS_WAVE_THRESHOLD)
 
 		if gs.player.dash_impact_active && !gs.player.dash_impact_damage_dealt {
 			gs.player.dash_impact_damage_dealt = true
@@ -411,6 +428,9 @@ update :: proc() {
 			chosen := gs.weapon_choices[idx]
 			apply_weapon_upgrade(&gs.player, chosen)
 			gs.weapons_available[chosen] = false
+			if chosen == .Waveblade {
+				gs.weapons_available[.Double_Strike] = false
+			}
 			close_menu_and_loop()
 		})
 
@@ -438,6 +458,7 @@ update :: proc() {
 		draw_doors()
 		draw_sludges(&gs.sludges)
 		draw_soldiers(&gs.soldiers)
+		draw_sludgeclops(&gs.sludgeclops)
 		draw_player(&gs.player)
 		draw_waveblade(&gs.player)
 		draw_dash_impact(&gs.player)
@@ -477,6 +498,7 @@ shutdown :: proc() {
 	unload_player(&gs.player)
 	unload_sludges(&gs.sludges)
 	unload_soldiers(&gs.soldiers)
+	unload_sludgeclops(&gs.sludgeclops)
 	unload_map_data()
 	for tex in gs.bg_textures {
 		raylib.UnloadTexture(tex)
@@ -547,6 +569,7 @@ restart_run :: proc() {
 	gs.wave = 1
 	reset_sludges(&gs.sludges, compute_wave_sludge_target(gs.wave))
 	reset_soldiers(&gs.soldiers)
+	reset_sludgeclops(&gs.sludgeclops)
 	gs.weapons_available = {}
 	gs.weapons_available[.Double_Strike] = true
 	gs.weapons_available[.Waveblade] = true
@@ -597,6 +620,10 @@ draw_hud :: proc() {
 		tw := raylib.MeasureText(label, 8)
 		raylib.DrawText(label, SCREEN_WIDTH - tw - 8, BAR_Y, 8, raylib.WHITE)
 	}
+
+	wave_label := fmt.ctprintf("Wave %d", gs.wave)
+	ww := raylib.MeasureText(wave_label, 10)
+	raylib.DrawText(wave_label, SCREEN_WIDTH/2 - ww/2, BAR_Y - 1, 10, raylib.WHITE)
 }
 
 parent_window_size_changed :: proc(w, h: int) {
@@ -659,8 +686,14 @@ all_enemies_cleared :: proc() -> bool {
 			return false
 		}
 	}
+	if gs.wave >= SLUDGECLOPS_WAVE_THRESHOLD {
+		if !sludgeclops_all_dead(&gs.sludgeclops, false) {
+			return false
+		}
+	}
 	return gs.sludges.count > 0 ||
-		(gs.wave >= SOLDIER_WAVE_THRESHOLD && gs.soldiers.count > 0)
+		(gs.wave >= SOLDIER_WAVE_THRESHOLD && gs.soldiers.count > 0) ||
+		(gs.wave >= SLUDGECLOPS_WAVE_THRESHOLD && gs.sludgeclops.count > 0)
 }
 
 @(private = "file")
@@ -748,6 +781,7 @@ close_menu_and_loop :: proc() {
 	gs.wave += 1
 	reset_sludges(&gs.sludges, compute_wave_sludge_target(gs.wave))
 	reset_soldiers(&gs.soldiers)
+	reset_sludgeclops(&gs.sludgeclops)
 }
 
 @(private = "file")

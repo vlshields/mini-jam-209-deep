@@ -976,6 +976,7 @@ update_twister :: proc(p: ^Player, dt: f32) {
 		if input_projectile() {
 			p.twister_state = .Returning
 			p.twister_travel_timer = 0
+			p.twister_attack_id += 1
 		}
 		advance_twister_anim(p, dt)
 
