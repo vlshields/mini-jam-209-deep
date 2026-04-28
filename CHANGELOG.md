@@ -1,4 +1,8 @@
 # Changelog
+## [0.2.2] - 2026-04-28
+- New enemy type appears in wave 5
+- Wave 7 now holds a special Boss fight
+- Updated issue with input hints
 
 ## [0.1.2] - 2026-04-27
 - Replaced Giant Whale special with Water Twister: throw that stalls at apex,
