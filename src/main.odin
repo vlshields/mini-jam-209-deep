@@ -14,10 +14,13 @@ Menu_State :: enum {
 	Choosing_Weapon,
 	Paused,
 	Game_Over,
+	Victory,
 }
 
 GAME_OVER_FADE_DURATION :: f32(2.0)
 GAME_OVER_MENU_DELAY    :: f32(1.2)
+VICTORY_FADE_DURATION   :: f32(2.0)
+VICTORY_MENU_DELAY      :: f32(1.2)
 
 Pause_Screen :: enum {
 	Main,
@@ -44,6 +47,7 @@ Game_State :: struct {
 	sludges:            Sludge_Pool,
 	soldiers:           Soldier_Pool,
 	sludgeclops:        Sludgeclops_Pool,
+	nergal:             Nergal,
 	wave:               int,
 	spawn_pos:          raylib.Vector2,
 	render_target:      raylib.RenderTexture2D,
@@ -67,6 +71,7 @@ Game_State :: struct {
 	music_volume:       f32,
 	sfx_volume:         f32,
 	game_over_timer:    f32,
+	victory_timer:      f32,
 	main_menu_screen:   Main_Menu_Screen,
 	main_menu_timer:    f32,
 	main_menu_title_y:  f32,
@@ -301,10 +306,13 @@ init :: proc() {
 		register_sludgeclops_slot(&gs.sludgeclops, pos)
 	}
 
+	init_nergal(&gs.nergal)
+
 	gs.wave = 1
 	reset_sludges(&gs.sludges, compute_wave_sludge_target(gs.wave))
 	reset_soldiers(&gs.soldiers)
 	reset_sludgeclops(&gs.sludgeclops)
+	set_nergal_dead(&gs.nergal)
 
 	gs.camera = raylib.Camera2D{
 		zoom   = 2,
@@ -351,6 +359,9 @@ count_remaining_enemies :: proc() -> int {
 				n += 1
 			}
 		}
+	}
+	if nergal_alive(&gs.nergal) {
+		n += 1
 	}
 	return n
 }
@@ -406,6 +417,7 @@ update :: proc() {
 			gs.wave >= SOLDIER_WAVE_THRESHOLD)
 		update_sludgeclops(&gs.sludgeclops, &gs.player, &gs.camera, &gs.map_data, dt,
 			gs.wave >= SLUDGECLOPS_WAVE_THRESHOLD)
+		update_nergal(&gs.nergal, &gs.player, &gs.soldiers, &gs.map_data, dt)
 
 		if gs.player.dash_impact_active && !gs.player.dash_impact_damage_dealt {
 			gs.player.dash_impact_damage_dealt = true
@@ -413,6 +425,10 @@ update :: proc() {
 
 		if gs.player.hp <= 0 {
 			enter_game_over()
+		} else if gs.wave == NERGAL_WAVE {
+			if all_enemies_cleared() {
+				enter_victory()
+			}
 		} else {
 			check_door_entry()
 		}
@@ -439,6 +455,9 @@ update :: proc() {
 
 	case .Game_Over:
 		update_game_over(dt)
+
+	case .Victory:
+		update_victory(dt)
 	}
 
 	if gs.menu != .Main_Menu {
@@ -459,6 +478,7 @@ update :: proc() {
 		draw_sludges(&gs.sludges)
 		draw_soldiers(&gs.soldiers)
 		draw_sludgeclops(&gs.sludgeclops)
+		draw_nergal(&gs.nergal)
 		draw_player(&gs.player)
 		draw_waveblade(&gs.player)
 		draw_dash_impact(&gs.player)
@@ -468,6 +488,7 @@ update :: proc() {
 		raylib.EndMode2D()
 
 		draw_hud()
+		draw_nergal_hp_bar(&gs.nergal)
 		draw_hint_popup()
 		draw_choose_prompt()
 		draw_menu_overlay()
@@ -499,6 +520,7 @@ shutdown :: proc() {
 	unload_sludges(&gs.sludges)
 	unload_soldiers(&gs.soldiers)
 	unload_sludgeclops(&gs.sludgeclops)
+	unload_nergal(&gs.nergal)
 	unload_map_data()
 	for tex in gs.bg_textures {
 		raylib.UnloadTexture(tex)
@@ -564,12 +586,70 @@ draw_game_over :: proc() {
 }
 
 @(private = "file")
+enter_victory :: proc() {
+	gs.menu = .Victory
+	gs.victory_timer = 0
+	gs.hint_active = false
+	play_sound(.UI_Confirm)
+	if gs.combat_music_loaded {
+		raylib.StopMusicStream(gs.combat_music)
+	}
+}
+
+@(private = "file")
+update_victory :: proc(dt: f32) {
+	gs.victory_timer += dt
+	if gs.victory_timer >= VICTORY_FADE_DURATION && input_menu_confirm() {
+		restart_run()
+	}
+}
+
+@(private = "file")
+draw_victory :: proc() {
+	fade_t := clamp(gs.victory_timer / VICTORY_FADE_DURATION, 0, 1)
+	eased := 1 - (1 - fade_t) * (1 - fade_t)
+	overlay_alpha := u8(eased * 220)
+	raylib.DrawRectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, raylib.Color{0x06, 0x10, 0x06, overlay_alpha})
+
+	menu_t := clamp(
+		(gs.victory_timer - VICTORY_MENU_DELAY) / (VICTORY_FADE_DURATION - VICTORY_MENU_DELAY),
+		0, 1,
+	)
+	if menu_t <= 0 {
+		return
+	}
+	menu_alpha := u8(menu_t * 255)
+
+	title: cstring = "VICTORY"
+	title_w := raylib.MeasureText(title, 28)
+	tx := (SCREEN_WIDTH - title_w) / 2
+	ty := i32(SCREEN_HEIGHT / 2 - 36)
+	raylib.DrawText(title, tx + 2, ty + 2, 28, raylib.Color{0, 0, 0, menu_alpha})
+	raylib.DrawText(title, tx, ty, 28, raylib.Color{0x9a, 0xeb, 0x00, menu_alpha})
+
+	flavor: cstring = "Nergal has fallen. Your people are saved."
+	fw := raylib.MeasureText(flavor, 10)
+	raylib.DrawText(
+		flavor, (SCREEN_WIDTH - fw) / 2, SCREEN_HEIGHT / 2 + 4, 10,
+		raylib.Color{255, 255, 255, menu_alpha},
+	)
+
+	sub: cstring = gamepad_active() ? "Press A to play again" : "Press ENTER to play again"
+	sub_w := raylib.MeasureText(sub, 10)
+	raylib.DrawText(
+		sub, (SCREEN_WIDTH - sub_w) / 2, SCREEN_HEIGHT / 2 + 26, 10,
+		raylib.Color{200, 200, 200, menu_alpha},
+	)
+}
+
+@(private = "file")
 restart_run :: proc() {
 	reset_player_run_state(&gs.player, gs.spawn_pos)
 	gs.wave = 1
 	reset_sludges(&gs.sludges, compute_wave_sludge_target(gs.wave))
 	reset_soldiers(&gs.soldiers)
 	reset_sludgeclops(&gs.sludgeclops)
+	set_nergal_dead(&gs.nergal)
 	gs.weapons_available = {}
 	gs.weapons_available[.Double_Strike] = true
 	gs.weapons_available[.Waveblade] = true
@@ -577,6 +657,7 @@ restart_run :: proc() {
 	gs.weapons_available[.Water_Twister] = true
 	gs.menu = .Playing
 	gs.game_over_timer = 0
+	gs.victory_timer = 0
 	gs.hint_active = false
 	gs.hint_play_time = 0
 	gs.hint_auto_shown = {}
@@ -691,6 +772,12 @@ all_enemies_cleared :: proc() -> bool {
 			return false
 		}
 	}
+	if nergal_alive(&gs.nergal) {
+		return false
+	}
+	if gs.wave == NERGAL_WAVE {
+		return gs.nergal.state == .Dead
+	}
 	return gs.sludges.count > 0 ||
 		(gs.wave >= SOLDIER_WAVE_THRESHOLD && gs.soldiers.count > 0) ||
 		(gs.wave >= SLUDGECLOPS_WAVE_THRESHOLD && gs.sludgeclops.count > 0)
@@ -779,14 +866,52 @@ handle_menu_input :: proc(count: int, on_confirm: proc(int)) {
 close_menu_and_loop :: proc() {
 	gs.menu = .Playing
 	gs.wave += 1
-	reset_sludges(&gs.sludges, compute_wave_sludge_target(gs.wave))
-	reset_soldiers(&gs.soldiers)
-	reset_sludgeclops(&gs.sludgeclops)
+	if gs.wave == NERGAL_WAVE {
+		reset_sludges(&gs.sludges, 0)
+		set_soldiers_all_dead(&gs.soldiers)
+		set_sludgeclops_all_dead(&gs.sludgeclops)
+		spawn_nergal(&gs.nergal, find_nergal_spawn())
+	} else {
+		reset_sludges(&gs.sludges, compute_wave_sludge_target(gs.wave))
+		reset_soldiers(&gs.soldiers)
+		reset_sludgeclops(&gs.sludgeclops)
+		set_nergal_dead(&gs.nergal)
+	}
+}
+
+@(private = "file")
+find_nergal_spawn :: proc() -> raylib.Vector2 {
+	best := raylib.Vector2{}
+	found := false
+	for row, ry in gs.map_data.grid {
+		for cell, cx in row {
+			if cell.symbol != 'e' {
+				continue
+			}
+			pos := raylib.Vector2{
+				f32(cx) * TILE_SIZE + TILE_SIZE / 2,
+				f32(ry) * TILE_SIZE + TILE_SIZE,
+			}
+			if !found || pos.x > best.x {
+				best = pos
+				found = true
+			}
+		}
+	}
+	if !found {
+		map_w := f32(gs.map_data.width) * TILE_SIZE
+		map_h := f32(gs.map_data.height) * TILE_SIZE
+		best = {map_w - 4 * TILE_SIZE, map_h - TILE_SIZE}
+	}
+	return best
 }
 
 @(private = "file")
 draw_choose_prompt :: proc() {
 	if gs.menu != .Playing {
+		return
+	}
+	if gs.wave == NERGAL_WAVE {
 		return
 	}
 	if !all_enemies_cleared() {
@@ -849,6 +974,9 @@ draw_choose_prompt :: proc() {
 
 @(private = "file")
 draw_doors :: proc() {
+	if gs.wave == NERGAL_WAVE {
+		return
+	}
 	if !all_enemies_cleared() {
 		return
 	}
@@ -899,6 +1027,8 @@ draw_menu_overlay :: proc() {
 		draw_pause_overlay()
 	case .Game_Over:
 		draw_game_over()
+	case .Victory:
+		draw_victory()
 	}
 }
 

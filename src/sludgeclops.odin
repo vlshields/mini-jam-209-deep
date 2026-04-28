@@ -118,6 +118,13 @@ get_sludgewave_rect :: proc(w: ^Sludgewave) -> raylib.Rectangle {
 	}
 }
 
+set_sludgeclops_all_dead :: proc(pool: ^Sludgeclops_Pool) {
+	for i := 0; i < pool.count; i += 1 {
+		spawn := pool.slots[i].spawn_pos
+		pool.slots[i] = Sludgeclops{pos = spawn, spawn_pos = spawn, state = .Dead}
+	}
+}
+
 sludgeclops_all_dead :: proc(pool: ^Sludgeclops_Pool, allow_unspawned: bool) -> bool {
 	for i := 0; i < pool.count; i += 1 {
 		st := pool.slots[i].state

@@ -123,6 +123,34 @@ get_soldier_projectile_rect :: proc(pr: ^Soldier_Projectile) -> raylib.Rectangle
 	}
 }
 
+set_soldiers_all_dead :: proc(pool: ^Soldier_Pool) {
+	for i := 0; i < pool.count; i += 1 {
+		spawn := pool.slots[i].spawn_pos
+		pool.slots[i] = Sludge_Soldier{pos = spawn, spawn_pos = spawn, state = .Dead}
+	}
+}
+
+force_spawn_soldiers_at :: proc(pool: ^Soldier_Pool, pos: raylib.Vector2, count: int) -> int {
+	spawned := 0
+	for i := 0; i < pool.count && spawned < count; i += 1 {
+		s := &pool.slots[i]
+		if s.state != .Dead && s.state != .Unspawned {
+			continue
+		}
+		offset_x: f32 = f32(spawned - count / 2) * 14.0
+		s^ = Sludge_Soldier{
+			pos = {pos.x + offset_x, pos.y},
+			spawn_pos = {pos.x + offset_x, pos.y},
+			state = .Spawning,
+			hp = SOLDIER_HP,
+			attack_range = rand.float32_range(SOLDIER_RANGE_MIN, SOLDIER_RANGE_MAX),
+			facing_left = rand.float32() < 0.5,
+		}
+		spawned += 1
+	}
+	return spawned
+}
+
 soldiers_all_dead :: proc(pool: ^Soldier_Pool, allow_unspawned: bool) -> bool {
 	for i := 0; i < pool.count; i += 1 {
 		st := pool.slots[i].state
