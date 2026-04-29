@@ -868,7 +868,8 @@ update_orb :: proc(p: ^Player, dt: f32) {
 
 	switch p.orb_state {
 	case .Inactive:
-		if !p.dashing && input_projectile() {
+		if !p.dashing && p.stamina >= WATERORB_STAMINA_COST && input_projectile() {
+			p.stamina -= WATERORB_STAMINA_COST
 			p.orb_state = .Spawning
 			p.orb_facing_left = p.facing_left
 			offset_x: f32 = p.orb_facing_left ? -f32(TILE_SIZE) : f32(TILE_SIZE)
@@ -947,7 +948,8 @@ update_twister :: proc(p: ^Player, dt: f32) {
 
 	switch p.twister_state {
 	case .Inactive:
-		if !p.dashing && p.on_ground && input_projectile() {
+		if !p.dashing && p.on_ground && p.stamina >= TWISTER_STAMINA_COST && input_projectile() {
+			p.stamina -= TWISTER_STAMINA_COST
 			p.twister_state = .Outgoing
 			p.twister_moving_left = p.facing_left
 			p.twister_pos = {p.pos.x, p.pos.y}

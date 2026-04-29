@@ -1179,7 +1179,9 @@ draw_pause_main :: proc() {
 		}
 	}
 
-	hint: cstring = "Up/Down + Confirm   |   Esc/B to resume"
+	hint: cstring = gamepad_active() \
+		? "D-pad + A to navigate   |   B to resume" \
+		: "Up/Down + Enter to navigate   |   Esc to resume"
 	hw := raylib.MeasureText(hint, 8)
 	raylib.DrawText(hint, SCREEN_WIDTH/2 - hw/2, 180, 8, raylib.LIGHTGRAY)
 }
@@ -1217,7 +1219,7 @@ draw_pause_controls :: proc() {
 		raylib.DrawText(row[1], col_value_x, y, 10, raylib.LIGHTGRAY)
 	}
 
-	hint: cstring = "Esc/B to go back"
+	hint: cstring = gamepad_active() ? "B to go back" : "Esc to go back"
 	hw := raylib.MeasureText(hint, 8)
 	raylib.DrawText(hint, SCREEN_WIDTH/2 - hw/2, row_y_start + i32(len(rows)) * row_h + 6, 8, raylib.LIGHTGRAY)
 }
@@ -1260,7 +1262,9 @@ draw_pause_options :: proc() {
 		}
 	}
 
-	hint: cstring = "Up/Down to switch  |  Left/Right to adjust  |  Esc/B to go back"
+	hint: cstring = gamepad_active() \
+		? "D-pad Up/Down to switch  |  Left/Right to adjust  |  B to go back" \
+		: "Up/Down to switch  |  Left/Right to adjust  |  Esc to go back"
 	hw := raylib.MeasureText(hint, 8)
 	raylib.DrawText(hint, SCREEN_WIDTH/2 - hw/2, row_y_start + i32(len(rows)) * row_h + 6, 8, raylib.LIGHTGRAY)
 }
@@ -1600,7 +1604,7 @@ draw_main_menu_items :: proc() {
 		raylib.DrawText(">", arrow_x, arrow_y, MAIN_MENU_ITEM_SIZE, raylib.YELLOW)
 	}
 
-	hint: cstring = "Up/Down + Confirm"
+	hint: cstring = gamepad_active() ? "D-pad + A" : "Up/Down + Enter"
 	hw := raylib.MeasureText(hint, MAIN_MENU_HINT_SIZE)
 	raylib.DrawText(hint, (SCREEN_WIDTH - hw) / 2, SCREEN_HEIGHT - 16, MAIN_MENU_HINT_SIZE, raylib.Color{180, 180, 180, 255})
 }
@@ -1627,7 +1631,7 @@ draw_main_menu_options_panel :: proc() {
 		}
 	}
 
-	hint: cstring = "Esc/B to go back"
+	hint: cstring = gamepad_active() ? "B to go back" : "Esc to go back"
 	hw := raylib.MeasureText(hint, 8)
 	raylib.DrawText(hint, SCREEN_WIDTH/2 - hw/2, SCREEN_HEIGHT - 20, 8, raylib.LIGHTGRAY)
 }
@@ -1754,7 +1758,9 @@ draw_hints_panel :: proc() {
 	raylib.DrawText("<", 80, arrow_y, 24, raylib.YELLOW)
 	raylib.DrawText(">", SCREEN_WIDTH - 96, arrow_y, 24, raylib.YELLOW)
 
-	hint: cstring = "Left/Right to browse  |  Esc/B to go back"
+	hint: cstring = gamepad_active() \
+		? "D-pad Left/Right to browse  |  B to go back" \
+		: "Left/Right to browse  |  Esc to go back"
 	hw := raylib.MeasureText(hint, 8)
 	raylib.DrawText(hint, SCREEN_WIDTH/2 - hw/2, SCREEN_HEIGHT - 24, 8, raylib.LIGHTGRAY)
 }

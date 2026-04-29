@@ -217,7 +217,9 @@ draw_choice_menu :: proc(title: cstring, titles: []string, descs: []string, coun
 		raylib.DrawText(d_c, x + 8, y + 64, 8, raylib.LIGHTGRAY)
 	}
 
-	hint: cstring = "1/2/3 or D-pad + A to confirm"
+	hint: cstring = gamepad_active() \
+		? "D-pad + A to confirm" \
+		: "1/2/3 or Enter to confirm"
 	hw := raylib.MeasureText(hint, 10)
 	raylib.DrawText(hint, SCREEN_WIDTH/2 - hw/2, SCREEN_HEIGHT - 30, 10, raylib.WHITE)
 }

@@ -1,4 +1,10 @@
 # Changelog
+
+## [0.2.3] 2026-04-28 hotfix
+- Reduced player hp back to 100
+- bumped boss hp and speed 
+- the orb and twister special attacks now cost 15 stamina
+
 ## [0.2.2] - 2026-04-28
 - New enemy type appears in wave 5
 - Wave 7 now holds a special Boss fight
